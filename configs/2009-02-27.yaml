@@ -1,0 +1,6 @@
+date: 2009-02-27
+probes: [a, b, c, d, e]
+level: l2
+zrange: [1.0e3, 1.0e8]
+yrange: [5, 30000]
+title: "THEMIS ESA ion eflux 2009-02-27"

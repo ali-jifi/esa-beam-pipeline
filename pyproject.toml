@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esa_plotting"
+version = "0.1.0"
+description = "helpers for THEMIS ESA plotting via pyspedas"
+requires-python = ">=3.10"
+dependencies = [
+    "pyspedas>=2.0",
+    "matplotlib",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter",
+    "ipykernel",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
