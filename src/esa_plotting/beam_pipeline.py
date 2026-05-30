@@ -332,6 +332,9 @@ def extract_features(
     energy_cutoff_low: float = 30.0,
     pa_coverage_threshold: float = 0.01,
     beam_flux_floor: float = 0.1,
+    coherent_asym_min: float = 0.2,
+    coherent_dir_min: float = 1.2,
+    coherent_min_bins: int = 2,
 ) -> FeatureTable:
     ntime = len(spectra.times)
     energy = spectra.energy
@@ -400,22 +403,83 @@ def extract_features(
         with np.errstate(invalid="ignore", divide="ignore"):
             asym_bins = np.where(denom_asym > 0,
                                  (para_t - anti_t) / denom_asym, np.nan)
-        # per-bin p2o
+        # per-bin p2o and dominant-cone enhancement
         with np.errstate(invalid="ignore", divide="ignore"):
             p2o_bins = np.where(omni_finite > 0,
                                 para_t / omni_finite, np.nan)
+            a2o_bins = np.where(omni_finite > 0,
+                                anti_t / omni_finite, np.nan)
 
-        # find bin with max |asym| among bins clearing the flux floor
-        asym_search = np.where(flux_mask & np.isfinite(asym_bins),
-                               np.abs(asym_bins), -np.inf)
-        if pa_ok_both[t] and np.any(np.isfinite(asym_search) & (asym_search > -np.inf)):
-            best = int(np.argmax(asym_search))
-            asymmetry[t] = asym_bins[best]
-            e_beam[t] = e_valid[best]
-            if pa_ok_para[t] and np.isfinite(p2o_bins[best]):
-                para_to_omni[t] = p2o_bins[best]
+        # dominant cone / omni, direction-agnostic enhancement
+        # high value means one cone (whichever is dominant) is brighter than omni
+        with np.errstate(invalid="ignore"):
+            dir_enhanced = np.where(
+                np.isfinite(asym_bins) & (asym_bins >= 0), p2o_bins,
+                np.where(np.isfinite(asym_bins) & (asym_bins < 0), a2o_bins, np.nan)
+            )
+
+        # a bin qualifies if flux-floor cleared, asym magnitude clears gate,
+        # and the dominant cone is enhanced over omni
+        with np.errstate(invalid="ignore"):
+            qual = (flux_mask &
+                    np.isfinite(asym_bins) &
+                    np.isfinite(dir_enhanced) &
+                    (np.abs(asym_bins) >= coherent_asym_min) &
+                    (dir_enhanced >= coherent_dir_min))
+
+        # find longest run of same-sign qualifying bins, allow gap of 1 non-qual bin
+        # gap tolerance catches beams whose qualifying bins are interrupted by
+        # a single nan or a bin that just barely misses the dir/asym gate
+        n = len(asym_bins)
+        signs = np.where(asym_bins > 0, 1,
+                         np.where(asym_bins < 0, -1, 0)).astype(int)
+        best_idxs = []   # qualifying bin indices in the best run
+        cur_idxs = []
+        cur_sign = 0
+        gap = 0
+        max_gap = 1
+        for k in range(n):
+            if qual[k] and signs[k] != 0:
+                if cur_sign == 0 or signs[k] == cur_sign:
+                    cur_idxs.append(k)
+                    cur_sign = signs[k]
+                    gap = 0
+                else:
+                    # opposite sign, close current run and start fresh
+                    if len(cur_idxs) > len(best_idxs):
+                        best_idxs = cur_idxs
+                    cur_idxs = [k]
+                    cur_sign = signs[k]
+                    gap = 0
+            else:
+                # non-qualifying bin, extend gap if a run is active
+                if cur_idxs:
+                    gap += 1
+                    if gap > max_gap:
+                        if len(cur_idxs) > len(best_idxs):
+                            best_idxs = cur_idxs
+                        cur_idxs = []
+                        cur_sign = 0
+                        gap = 0
+        if len(cur_idxs) > len(best_idxs):
+            best_idxs = cur_idxs
+
+        if pa_ok_both[t] and len(best_idxs) >= coherent_min_bins:
+            # flux-weighted avg over only the qualifying bins in the run
+            # gaps are excluded so their non-beam contribution doesnt pollute the avg
+            idx_arr = np.array(best_idxs)
+            w = omni_finite[idx_arr]
+            w_sum = w.sum()
+            asymmetry[t] = np.sum(asym_bins[idx_arr] * w) / w_sum
+            e_beam[t] = np.sum(e_valid[idx_arr] * w) / w_sum
+            if pa_ok_para[t]:
+                p2o_vals = p2o_bins[idx_arr]
+                p2o_ok = np.isfinite(p2o_vals)
+                if np.any(p2o_ok):
+                    w_p = w[p2o_ok]
+                    para_to_omni[t] = np.sum(p2o_vals[p2o_ok] * w_p) / w_p.sum()
         else:
-            # fallback to peak +/-2 window when no bins qualify, avoids all-nan output
+            # fallback to peak +/-2 window when no coherent run found
             lo = max(0, idx_peak - 2)
             hi = min(len(e_valid), idx_peak + 3)
             f_para = np.nanmean(para_t[lo:hi])
@@ -461,6 +525,10 @@ class ClassifierParams:
     score_threshold: float = 0.4
     min_coverage: float = 0.01
     beam_flux_floor: float = 0.1
+    # per-bin gates for coherent-region detection
+    coherent_asym_min: float = 0.2   # min |asym| per bin to qualify
+    coherent_dir_min: float = 1.2    # min dominant cone / omni per bin
+    coherent_min_bins: int = 2       # min adjacent bins for a run
     # weights, spectral > moments
     w_asymmetry: float = 0.35
     w_width: float = 0.25
@@ -574,6 +642,95 @@ def smooth_labels(result: ClassificationResult,
     )
 
 
+def diagnose_window(
+    spectra: PitchAngleSpectra,
+    features: FeatureTable,
+    classification: ClassificationResult,
+    params: ClassifierParams,
+    ut_start: str,
+    ut_end: str,
+    out_path: str | None = None,
+) -> None:
+    # dump per-bin spectra and features for timesteps in [ut_start, ut_end]
+    # writes to file if out_path given, prints summary to stdout either way
+    from datetime import datetime, timezone
+
+    def parse_ut(s: str, ref_unix: float) -> float:
+        ref_dt = datetime.fromtimestamp(ref_unix, tz=timezone.utc)
+        parts = s.split(":")
+        h = int(parts[0])
+        m = int(parts[1]) if len(parts) > 1 else 0
+        sec = float(parts[2]) if len(parts) > 2 else 0.0
+        dt = ref_dt.replace(hour=h, minute=m, second=int(sec), microsecond=0)
+        return dt.timestamp()
+
+    t0 = parse_ut(ut_start, spectra.times[0])
+    t1 = parse_ut(ut_end, spectra.times[0])
+    mask = (spectra.times >= t0) & (spectra.times <= t1)
+    idxs = np.where(mask)[0]
+
+    if len(idxs) == 0:
+        print(f"[diag] no timesteps in {ut_start}-{ut_end}")
+        return
+
+    lines = []
+    lines.append(f"=== Diagnostic: {ut_start}-{ut_end} UT, {len(idxs)} timesteps ===")
+    lines.append(f"params: asym_min={params.asymmetry_min} width_max={params.width_max} "
+                 f"p2o_min={params.para_to_omni_min} score_thr={params.score_threshold} "
+                 f"flux_floor={params.beam_flux_floor}")
+
+    for t in idxs:
+        dt = datetime.fromtimestamp(spectra.times[t], tz=timezone.utc)
+        lines.append(f"\n--- {dt.strftime('%H:%M:%S')} (idx={t}) ---")
+        lines.append(f"  e_peak={features.e_peak[t]:.1f}eV e_beam={features.e_beam[t]:.1f}eV "
+                     f"width={features.width[t]:.3f}")
+        lines.append(f"  asym={features.asymmetry[t]:.3f} p2o={features.para_to_omni[t]:.3f} "
+                     f"e_ratio={features.energy_ratio[t]:.3f}")
+        lines.append(f"  pa_cov: para={spectra.pa_coverage_para[t]:.3f} "
+                     f"anti={spectra.pa_coverage_anti[t]:.3f} "
+                     f"(both_ok={features.pa_ok_both[t]} para_ok={features.pa_ok_para[t]})")
+        lines.append(f"  score={classification.beam_score[t]:.3f} "
+                     f"is_beam={classification.is_beam[t]} dir={classification.beam_direction[t]}")
+
+        e = spectra.energy
+        omni = spectra.omni[t]
+        para = spectra.para[t]
+        anti = spectra.anti[t]
+        omni_finite = np.where(np.isfinite(omni), omni, 0.0)
+        peak = np.max(omni_finite) if np.any(omni_finite > 0) else 0.0
+        floor = params.beam_flux_floor * peak
+
+        lines.append(f"  per-bin (omni >= {floor:.2e}):")
+        lines.append(f"    {'E[eV]':>9} {'omni':>10} {'para':>10} {'anti':>10} "
+                     f"{'asym':>7} {'p2o':>6}")
+        for b in range(len(e)):
+            if not np.isfinite(omni[b]) or omni[b] < floor:
+                continue
+            denom = (para[b] if np.isfinite(para[b]) else 0) + \
+                    (anti[b] if np.isfinite(anti[b]) else 0)
+            ab = (para[b] - anti[b]) / denom if denom > 0 else np.nan
+            pb = para[b] / omni[b] if omni[b] > 0 and np.isfinite(para[b]) else np.nan
+            lines.append(f"    {e[b]:>9.1f} {omni[b]:>10.2e} "
+                         f"{para[b] if np.isfinite(para[b]) else float('nan'):>10.2e} "
+                         f"{anti[b] if np.isfinite(anti[b]) else float('nan'):>10.2e} "
+                         f"{ab:>7.3f} {pb:>6.3f}")
+
+    text = "\n".join(lines)
+    if out_path:
+        with open(out_path, "w") as f:
+            f.write(text + "\n")
+        # short stdout summary
+        n_flagged = sum(int(classification.is_beam[t]) for t in idxs)
+        max_score = max((classification.beam_score[t] for t in idxs), default=0.0)
+        max_asym = max((abs(features.asymmetry[t]) for t in idxs
+                        if np.isfinite(features.asymmetry[t])), default=0.0)
+        print(f"[diag] wrote {out_path}")
+        print(f"[diag] window summary: {len(idxs)} steps, {n_flagged} flagged, "
+              f"max_score={max_score:.3f} max|asym|={max_asym:.3f}")
+    else:
+        print(text)
+
+
 def threshold_sensitivity(features: FeatureTable,
                           param_ranges: dict | None = None) -> dict:
     # varies thresholds, reports label stability
@@ -644,6 +801,7 @@ def plot_feature_timeseries(
 ):
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
     from datetime import datetime, timezone
 
     times_dt = [datetime.fromtimestamp(t, tz=timezone.utc) for t in features.times]
@@ -663,7 +821,16 @@ def plot_feature_timeseries(
     ax.set_yscale("log")
     ax.set_ylabel("Energy [eV]")
     ax.set_ylim(5, 30000)
-    fig.colorbar(pcm, ax=ax, label="eflux", pad=0.01)
+    # colorbar via divider so it doesnt shrink the spectrogram data area
+    # keeps x-axis aligned with the panels below
+    div = make_axes_locatable(ax)
+    cax = div.append_axes("right", size="1.5%", pad=0.05)
+    fig.colorbar(pcm, cax=cax, label="eflux")
+    # invisible spacer on every other panel so they all share the same width
+    for other_ax in axes[1:]:
+        d = make_axes_locatable(other_ax)
+        spacer = d.append_axes("right", size="1.5%", pad=0.05)
+        spacer.axis("off")
     if title:
         ax.set_title(title)
 
@@ -710,8 +877,17 @@ def plot_feature_timeseries(
     ax.set_ylabel("Beam")
     ax.set_yticks([])
 
+    # hourly major ticks, set on all panels via sharex
+    axes[-1].xaxis.set_major_locator(mdates.HourLocator(interval=1))
+    axes[-1].xaxis.set_minor_locator(mdates.MinuteLocator(byminute=[15, 30, 45]))
     axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     axes[-1].set_xlabel("UT")
+    # bolder hourly ticks across all panels
+    for ax in axes:
+        ax.tick_params(axis="x", which="major", width=1.8, length=7, color="black")
+        ax.tick_params(axis="x", which="minor", width=0.8, length=3, color="gray")
+    for lbl in axes[-1].get_xticklabels(which="major"):
+        lbl.set_fontweight("bold")
     plt.tight_layout()
     fig.savefig(out_png, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -831,7 +1007,10 @@ def run_pipeline(
     features = extract_features(spectra, moments,
                                 energy_cutoff_low=energy_cutoff_low,
                                 pa_coverage_threshold=params.min_coverage,
-                                beam_flux_floor=params.beam_flux_floor)
+                                beam_flux_floor=params.beam_flux_floor,
+                                coherent_asym_min=params.coherent_asym_min,
+                                coherent_dir_min=params.coherent_dir_min,
+                                coherent_min_bins=params.coherent_min_bins)
     n_finite = np.sum(np.isfinite(features.asymmetry))
     print(f"  Features computed: {n_finite}/{len(features.times)} with valid asymmetry")
 
