@@ -15,8 +15,8 @@ def main() -> None:
                    help="Start and end times, e.g. 2019-05-01 2019-05-02")
     p.add_argument("--energy-cutoff", type=float, default=30.0,
                    help="Low-energy cutoff in eV (default: 30)")
-    p.add_argument("--min-consecutive", type=int, default=2,
-                   help="Min consecutive beam steps for smoothing (default: 2)")
+    p.add_argument("--min-consecutive", type=int, default=1,
+                   help="Min consecutive beam steps to keep, 1 = keep isolated (default: 1)")
     p.add_argument("--asym-threshold", type=float, default=0.2,
                    help="Asymmetry threshold (default: 0.2)")
     p.add_argument("--width-threshold", type=float, default=0.8,
@@ -35,6 +35,10 @@ def main() -> None:
                    help="Per-bin dominant-cone/omni threshold (default: 1.2)")
     p.add_argument("--coherent-min-bins", type=int, default=2,
                    help="Min adjacent bins to count as a coherent beam (default: 2)")
+    p.add_argument("--peak-prom-min", type=float, default=0.3,
+                   help="Log10 prominence threshold for spectral line score (default: 0.3)")
+    p.add_argument("--peak-width-max", type=float, default=4.0,
+                   help="Max line FWHM in bins (default: 4)")
     p.add_argument("--no-plots", action="store_true")
     p.add_argument("--diagnose", nargs=2, metavar=("UT_START", "UT_END"),
                    help="Dump per-bin spectra and features for UT window, e.g. 06:00 07:00")
@@ -52,6 +56,8 @@ def main() -> None:
         coherent_asym_min=args.coherent_asym_min,
         coherent_dir_min=args.coherent_dir_min,
         coherent_min_bins=args.coherent_min_bins,
+        peak_prom_min=args.peak_prom_min,
+        peak_width_max=args.peak_width_max,
     )
 
     result = run_pipeline(

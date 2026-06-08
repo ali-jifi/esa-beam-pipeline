@@ -11,6 +11,7 @@ from cdflib import CDF
 from pyspedas import get_data
 from pyspedas.projects import themis
 from scipy.interpolate import interp1d
+from scipy.signal import find_peaks
 
 
 @dataclass
@@ -317,6 +318,10 @@ class FeatureTable:
     asymmetry: np.ndarray        # signed asym at e_beam, picked from max |asym| across bins
     para_to_omni: np.ndarray     # parallel cone / omni ratio at e_beam
     energy_ratio: np.ndarray     # e_flow / e_th from moments
+    peak_prom: np.ndarray        # log10 prominence of narrow line inside the coherent run
+    peak_width: np.ndarray       # fwhm of that line in bins
+    e_line: np.ndarray           # energy of the line, ev
+    coherent_ok: np.ndarray      # bool, a real coherent directional run was found
     pa_ok_both: np.ndarray       # bool, both cones sampled, asym is trustworthy
     pa_ok_para: np.ndarray       # bool, para cone sampled, p2o is trustworthy
 
@@ -335,6 +340,8 @@ def extract_features(
     coherent_asym_min: float = 0.2,
     coherent_dir_min: float = 1.2,
     coherent_min_bins: int = 2,
+    peak_width_max: float = 4.0,
+    peak_wlen: int = 5,
 ) -> FeatureTable:
     ntime = len(spectra.times)
     energy = spectra.energy
@@ -348,6 +355,10 @@ def extract_features(
     asymmetry = np.full(ntime, np.nan)
     para_to_omni = np.full(ntime, np.nan)
     energy_ratio = np.full(ntime, np.nan)
+    peak_prom = np.full(ntime, np.nan)
+    peak_width = np.full(ntime, np.nan)
+    e_line = np.full(ntime, np.nan)
+    coherent_ok = np.zeros(ntime, dtype=bool)
     pa_ok_both = np.zeros(ntime, dtype=bool)
     pa_ok_para = np.zeros(ntime, dtype=bool)
 
@@ -465,6 +476,7 @@ def extract_features(
             best_idxs = cur_idxs
 
         if pa_ok_both[t] and len(best_idxs) >= coherent_min_bins:
+            coherent_ok[t] = True
             # flux-weighted avg over only the qualifying bins in the run
             # gaps are excluded so their non-beam contribution doesnt pollute the avg
             idx_arr = np.array(best_idxs)
@@ -491,6 +503,36 @@ def extract_features(
             if pa_ok_para[t] and np.isfinite(f_para) and f_omni > 0:
                 para_to_omni[t] = f_para / f_omni
 
+        # spectral line detection, local to the coherent run not global
+        # a beam = the directional region is ALSO a narrow line, so we only
+        # look in the dominant cone within the run band, a prominent line
+        # elsewhere (eg the anti plasma sheet peak) is not the beam
+        if coherent_ok[t]:
+            # dominant cone is the one the run points at
+            cone = para_t if asymmetry[t] >= 0 else anti_t
+            fin = np.isfinite(cone) & (cone > 0)
+            if fin.sum() >= 3:
+                # compress to finite bins, log flux so prominence = brightness ratio
+                idx_map = np.where(fin)[0]
+                logf = np.log10(cone[fin])
+                # wlen bounds the prominence window so a narrow line on a broad
+                # pedestal gets a local prominence and width, not inflated by far valleys
+                pks, props = find_peaks(logf, prominence=0.05, wlen=peak_wlen,
+                                        width=(None, peak_width_max))
+                # run band in valid_e index space, allow 1 bin of slop
+                lo_b = min(best_idxs) - 1
+                hi_b = max(best_idxs) + 1
+                for j, pk in enumerate(pks):
+                    b = idx_map[pk]
+                    # line must sit inside the directional run to count
+                    if b < lo_b or b > hi_b:
+                        continue
+                    prom = props["prominences"][j]
+                    if not np.isfinite(peak_prom[t]) or prom > peak_prom[t]:
+                        peak_prom[t] = prom
+                        peak_width[t] = props["widths"][j]
+                        e_line[t] = e_valid[b]
+
         # e_flow/e_th, ratio of bulk kinetic to thermal energy, beams have higher ratio
         if vel_interp is not None and temp_interp is not None:
             v = vel_interp(spectra.times[t])
@@ -510,6 +552,10 @@ def extract_features(
         asymmetry=asymmetry,
         para_to_omni=para_to_omni,
         energy_ratio=energy_ratio,
+        peak_prom=peak_prom,
+        peak_width=peak_width,
+        e_line=e_line,
+        coherent_ok=coherent_ok,
         pa_ok_both=pa_ok_both,
         pa_ok_para=pa_ok_para,
     )
@@ -517,7 +563,7 @@ def extract_features(
 
 @dataclass
 class ClassifierParams:
-    # spectral features are primary, moments are soft cuz they mix beam + plasma sheet
+    # spectral features are primary, moments are soft bc they mix beam + plasma sheet
     asymmetry_min: float = 0.2
     width_max: float = 0.8
     para_to_omni_min: float = 1.3
@@ -529,11 +575,17 @@ class ClassifierParams:
     coherent_asym_min: float = 0.2   # min |asym| per bin to qualify
     coherent_dir_min: float = 1.2    # min dominant cone / omni per bin
     coherent_min_bins: int = 2       # min adjacent bins for a run
+    # spectral line gates, prominence in log10 so 0.3 = 2x above local baseline
+    peak_prom_min: float = 0.3
+    peak_width_max: float = 4.0      # fwhm cap in bins, rejects broad bumps
+    peak_wlen: int = 5               # local window for prominence, bounds pedestal inflation
     # weights, spectral > moments
     w_asymmetry: float = 0.35
     w_width: float = 0.25
     w_para_to_omni: float = 0.25
-    w_energy_ratio: float = 0.15
+    # peak prom takes the slot energy ratio vacated, er stays dead
+    w_peak_prom: float = 0.15
+    w_energy_ratio: float = 0.0
 
 
 @dataclass
@@ -581,14 +633,22 @@ def classify_beams(features: FeatureTable,
         if np.isfinite(p2o):
             s_p2o = np.clip((p2o - 1.0) / (params.para_to_omni_min - 1.0), 0, 2) / 2
 
+        # dead code, will remove/edit later
         s_er = 0.0
         if np.isfinite(er):
             s_er = np.clip(er / params.energy_ratio_min, 0, 2) / 2
+
+        # ramp on log prominence, 0.5 at threshold, width already gated in find_peaks
+        s_peak = 0.0
+        prom = features.peak_prom[t]
+        if np.isfinite(prom):
+            s_peak = np.clip(prom / params.peak_prom_min, 0, 2) / 2
 
         # weighted sum, weights total to 1 so score stays in [0,1]
         beam_score[t] = (params.w_asymmetry * s_asym +
                          params.w_width * s_width +
                          params.w_para_to_omni * s_p2o +
+                         params.w_peak_prom * s_peak +
                          params.w_energy_ratio * s_er)
 
         # score-based, catches weak beams spread across features
@@ -600,7 +660,12 @@ def classify_beams(features: FeatureTable,
         p2o_ok = np.isfinite(p2o) and p2o >= params.para_to_omni_min
         hard_ok = asym_ok and (width_ok or p2o_ok)
 
-        is_beam[t] = score_ok or hard_ok
+        # and-gate, directional run must also be a narrow line at same energy
+        # both detectors agree or its not a beam, kills noise that fires one alone
+        gate = (features.coherent_ok[t] and np.isfinite(prom) and
+                prom >= params.peak_prom_min)
+
+        is_beam[t] = (score_ok or hard_ok) and gate
 
         if np.isfinite(asym):
             if asym > 0:
@@ -617,8 +682,9 @@ def classify_beams(features: FeatureTable,
 
 
 def smooth_labels(result: ClassificationResult,
-                  min_consecutive: int = 2) -> ClassificationResult:
+                  min_consecutive: int = 1) -> ClassificationResult:
     # requires min_consecutive flagged steps to keep a beam interval
+    # default 1 = keep isolated beams, and-gate already handles precision
     smoothed = np.zeros_like(result.is_beam)
     n = len(smoothed)
 
@@ -686,6 +752,10 @@ def diagnose_window(
                      f"width={features.width[t]:.3f}")
         lines.append(f"  asym={features.asymmetry[t]:.3f} p2o={features.para_to_omni[t]:.3f} "
                      f"e_ratio={features.energy_ratio[t]:.3f}")
+        lines.append(f"  peak_prom={features.peak_prom[t]:.3f} "
+                     f"peak_width={features.peak_width[t]:.2f}bins "
+                     f"e_line={features.e_line[t]:.1f}eV "
+                     f"coherent_ok={features.coherent_ok[t]}")
         lines.append(f"  pa_cov: para={spectra.pa_coverage_para[t]:.3f} "
                      f"anti={spectra.pa_coverage_anti[t]:.3f} "
                      f"(both_ok={features.pa_ok_both[t]} para_ok={features.pa_ok_para[t]})")
@@ -797,6 +867,7 @@ def plot_feature_timeseries(
     classification: ClassificationResult,
     spectra: PitchAngleSpectra,
     out_png: str,
+    params: ClassifierParams,
     title: str = "",
 ):
     import matplotlib.pyplot as plt
@@ -840,21 +911,25 @@ def plot_feature_timeseries(
 
     axes[2].plot(times_dt, features.width, "k.", ms=2)
     axes[2].set_ylabel("Width")
-    axes[2].axhline(0.8, color="r", ls="--", alpha=0.5, label="threshold")
+    axes[2].axhline(params.width_max, color="r", ls="--", alpha=0.5, label="threshold")
     axes[2].legend(fontsize=8)
 
     axes[3].plot(times_dt, features.asymmetry, "k.", ms=2)
     axes[3].set_ylabel("Asymmetry")
-    axes[3].axhline(0.2, color="r", ls="--", alpha=0.5)
-    axes[3].axhline(-0.2, color="r", ls="--", alpha=0.5)
+    axes[3].axhline(params.asymmetry_min, color="r", ls="--", alpha=0.5)
+    axes[3].axhline(-params.asymmetry_min, color="r", ls="--", alpha=0.5)
     axes[3].set_ylim(-1.1, 1.1)
 
-    axes[4].semilogy(times_dt, features.energy_ratio, "k.", ms=2)
-    axes[4].set_ylabel("E_flow/E_th")
-    axes[4].axhline(0.5, color="r", ls="--", alpha=0.5)
+    # peak prominence, the and-gate line, key precision filter
+    axes[4].plot(times_dt, features.peak_prom, "k.", ms=2)
+    axes[4].set_ylabel("Peak Prom")
+    axes[4].axhline(params.peak_prom_min, color="r", ls="--", alpha=0.5, label="threshold")
+    axes[4].legend(fontsize=8)
 
     axes[5].plot(times_dt, classification.beam_score, "k.", ms=2)
     axes[5].set_ylabel("Beam Score")
+    axes[5].axhline(params.score_threshold, color="r", ls="--", alpha=0.5, label="threshold")
+    axes[5].legend(fontsize=8)
     axes[5].set_ylim(0, 1.1)
 
     # classification color bar
@@ -979,7 +1054,7 @@ def run_pipeline(
     trange: list[str],
     data_dir: str,
     params: ClassifierParams | None = None,
-    min_consecutive: int = 2,
+    min_consecutive: int = 1,
     energy_cutoff_low: float = 30.0,
     figures_dir: str | None = None,
 ) -> PipelineResult:
@@ -1010,7 +1085,9 @@ def run_pipeline(
                                 beam_flux_floor=params.beam_flux_floor,
                                 coherent_asym_min=params.coherent_asym_min,
                                 coherent_dir_min=params.coherent_dir_min,
-                                coherent_min_bins=params.coherent_min_bins)
+                                coherent_min_bins=params.coherent_min_bins,
+                                peak_width_max=params.peak_width_max,
+                                peak_wlen=params.peak_wlen)
     n_finite = np.sum(np.isfinite(features.asymmetry))
     print(f"  Features computed: {n_finite}/{len(features.times)} with valid asymmetry")
 
@@ -1019,7 +1096,7 @@ def run_pipeline(
     n_beam = classification.is_beam.sum()
     print(f"  Raw beams: {n_beam}/{len(features.times)} timesteps")
 
-    print(f"\n=== Phase 5: Temporal smoothing ===")
+    print(f"\n=== Phase 4: Temporal smoothing ===")
     smoothed = smooth_labels(classification, min_consecutive=min_consecutive)
     n_smooth = smoothed.is_beam.sum()
     print(f"  Smoothed beams: {n_smooth}/{len(features.times)} timesteps")
@@ -1028,7 +1105,7 @@ def run_pipeline(
     print(f"  Sensitivity analysis complete")
 
     if figures_dir is not None:
-        print(f"\n=== Phase 4: Plotting ===")
+        print(f"\n=== Phase 5: Plotting ===")
         fig_dir = Path(figures_dir)
         fig_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1038,6 +1115,7 @@ def run_pipeline(
         plot_feature_timeseries(
             features, smoothed, spectra,
             str(fig_dir / f"{prefix}_overview.png"),
+            params,
             title=f"THEMIS-{probe.upper()} Beam Detection {trange[0]}",
         )
 
