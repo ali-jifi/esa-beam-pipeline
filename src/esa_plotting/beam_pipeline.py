@@ -877,8 +877,8 @@ def plot_feature_timeseries(
 
     times_dt = [datetime.fromtimestamp(t, tz=timezone.utc) for t in features.times]
 
-    fig, axes = plt.subplots(7, 1, figsize=(14, 18), sharex=True,
-                             gridspec_kw={"height_ratios": [3, 1, 1, 1, 1, 1, 0.5]})
+    fig, axes = plt.subplots(8, 1, figsize=(14, 21), sharex=True,
+                             gridspec_kw={"height_ratios": [3, 1, 1, 1, 1, 1, 0.5, 3]})
 
     # omni spectrogram
     ax = axes[0]
@@ -897,13 +897,36 @@ def plot_feature_timeseries(
     div = make_axes_locatable(ax)
     cax = div.append_axes("right", size="1.5%", pad=0.05)
     fig.colorbar(pcm, cax=cax, label="eflux")
-    # invisible spacer on every other panel so they all share the same width
-    for other_ax in axes[1:]:
+    if title:
+        ax.set_title(title)
+
+    # bottom panel, same spectrogram with beam detections overlaid at e_beam
+    axb = axes[7]
+    pcmb = axb.pcolormesh(times_dt, e_plot, z,
+                          norm=plt.matplotlib.colors.LogNorm(vmin=1e3, vmax=1e8),
+                          cmap="jet", shading="auto")
+    axb.set_yscale("log")
+    axb.set_ylabel("Energy [eV]")
+    axb.set_ylim(5, 30000)
+    divb = make_axes_locatable(axb)
+    caxb = divb.append_axes("right", size="1.5%", pad=0.05)
+    fig.colorbar(pcmb, cax=caxb, label="eflux")
+    # markers at e_beam, red para blue anti
+    is_b = classification.is_beam
+    t_arr = np.array(times_dt, dtype=object)
+    for mask, col, lab in ((is_b & (classification.beam_direction > 0), "red", "para beam"),
+                           (is_b & (classification.beam_direction < 0), "blue", "anti beam")):
+        if np.any(mask):
+            axb.scatter(t_arr[mask], features.e_beam[mask], s=24, c=col,
+                        edgecolors="white", linewidths=0.5, label=lab, zorder=3)
+    if np.any(is_b):
+        axb.legend(loc="upper right", fontsize=8)
+
+    # invisible spacer on the middle panels so they share the spectrogram width
+    for other_ax in axes[1:7]:
         d = make_axes_locatable(other_ax)
         spacer = d.append_axes("right", size="1.5%", pad=0.05)
         spacer.axis("off")
-    if title:
-        ax.set_title(title)
 
     axes[1].semilogy(times_dt, features.e_peak, "k.", ms=2)
     axes[1].set_ylabel("E_peak [eV]")
