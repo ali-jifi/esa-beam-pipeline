@@ -37,7 +37,7 @@ Loads three data products for a given probe/time range:
 
 ### Phase 1 - Spectral reduction
 
-Takes the full 3D ion distribution — flux at 32 energies x 176 angle bins — and collapses it into three 1D energy spectra based on pitch angle relative to the magnetic field.
+Takes the full 3D ion distribution (flux at 32 energies x 176 angle bins) and collapses it into three 1D energy spectra based on pitch angle relative to the magnetic field.
 
 Pitch angle is the angle between a particle's velocity and the local B-field direction. 0° = moving along B (field-aligned/parallel), 180° = moving opposite to B (anti-parallel), 90° = perpendicular.
 
@@ -47,9 +47,9 @@ The three spectra:
 - **Parallel (0-30°)** - only bins where the particle velocity is roughly field-aligned. A beam streaming along B shows up here.
 - **Anti-parallel (150-180°)** - only bins moving opposite to B. A beam coming from the other direction shows up here.
 
-A beam is a narrow, directional population — it lights up in one PA gate but not the other. Plasma sheet ions are roughly isotropic, so all three curves overlap. Comparing parallel and anti-parallel spectra surfaces the directional asymmetry that defines a beam.
+A beam is a narrow, directional population, it lights up in one PA gate but not the other. Plasma sheet ions are roughly isotropic, so all three curves overlap. Comparing parallel and anti-parallel spectra surfaces the directional asymmetry that defines a beam.
 
-`compute_pa_spectra()`: for each timestep, interpolates the magnetic field to the distribution time, computes pitch angles for every angle bin, then sorts flux into omni / para / anti energy spectra. `_compute_pitch_angles()` does the geometry — converting instrument look directions to particle velocities (opposite direction), then dotting with the B-field unit vector.
+`compute_pa_spectra()`: for each timestep, interpolates the magnetic field to the distribution time, computes pitch angles for every angle bin, then sorts flux into omni / para / anti energy spectra. `_compute_pitch_angles()` does the geometry by converting instrument look directions to particle velocities (opposite direction), then dotting with the B-field unit vector.
 
 ### Phase 2 - Feature extraction (`extract_features()`)
 
@@ -76,10 +76,10 @@ Spectral-line detection is local to the coherent run, not global. It scans only 
 
 Two-path heuristic classifier, wrapped in an AND-gate:
 
-1. **Score-based** - weighted sum of normalized feature scores. Weights: `w_asymmetry=0.35`, `w_width=0.25`, `w_para_to_omni=0.25`, `w_peak_prom=0.15` (peak prominence took the slot energy_ratio vacated). `w_energy_ratio=0.0` — the moments energy_ratio score is dead code, kept for later. Beam candidate if score clears the threshold.
+1. **Score-based** - weighted sum of normalized feature scores. Weights: `w_asymmetry=0.35`, `w_width=0.25`, `w_para_to_omni=0.25`, `w_peak_prom=0.15` (peak prominence took the slot energy_ratio vacated). `w_energy_ratio=0.0`. The moments energy_ratio score is dead code, kept for now. Beam candidate if score clears the threshold.
 2. **Hard rule fallback** - beam candidate if asymmetry exceeds threshold AND either width is narrow enough or para_to_omni is high enough. Catches strong beams that might miss the score threshold.
 
-**AND-gate:** final `is_beam = (score_ok or hard_ok) and gate`, where `gate = coherent_ok and peak_prom >= peak_prom_min`. Both detectors — the directional coherent run AND a narrow spectral line at the same energy — must agree, which kills noise that fires only one signal alone.
+**AND-gate:** final `is_beam = (score_ok or hard_ok) and gate`, where `gate = coherent_ok and peak_prom >= peak_prom_min`. Both detectors, the directional coherent run AND a narrow spectral line at the same energy, must agree, which kills noise that fires only one signal alone.
 
 Line-detection params on `ClassifierParams`: `peak_prom_min=0.3` (log10, so 0.3 = 2x above local baseline), `peak_width_max=4.0` (FWHM cap in bins), `peak_wlen=5` (local prominence window).
 
@@ -96,7 +96,7 @@ Beam direction is tagged (+1 parallel, -1 anti-parallel) from the asymmetry sign
 - `plot_curated_snapshots()` - picks representative timesteps (confirmed beams, plasma sheet, borderline cases) and plots the three-curve energy spectra at each.
 - `diagnose_window()` - dumps per-timestep spectra and features, including `peak_prom`, `peak_width`, `e_line`, and `coherent_ok`.
 
-`run_pipeline()` ties it all together — loads data, runs the phases, optionally saves plots, returns everything in a `PipelineResult` dataclass. Default `min_consecutive` is 1, threads `peak_width_max` / `peak_wlen` through to `extract_features`, and passes `params` into the plotter.
+`run_pipeline()` ties it all together via loading data, runs the phases, optionally saves plots, returns everything in a `PipelineResult` dataclass. Default `min_consecutive` is 1, threads `peak_width_max` / `peak_wlen` through to `extract_features`, and passes `params` into the plotter.
 
 ## Scripts - `scripts/`
 
@@ -132,6 +132,8 @@ Command flags:
 
 Built on [pyspedas](https://github.com/spedas/pyspedas). THEMIS ESA data courtesy of the THEMIS mission (NASA) and the instrument teams.
 
+Ad astra per aspera
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT (see [LICENSE](LICENSE))
