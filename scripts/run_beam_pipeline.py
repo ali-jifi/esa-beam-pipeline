@@ -39,6 +39,9 @@ def main() -> None:
                    help="Log10 prominence threshold for spectral line score (default: 0.3)")
     p.add_argument("--peak-width-max", type=float, default=4.0,
                    help="Max line FWHM in bins (default: 4)")
+    p.add_argument("--threshold-compare-values", nargs="+", type=float,
+                   default=[1.0, 1.2, 1.5, 2.0],
+                   help="R (coherent_dir_min) values for the threshold-comparison plot")
     p.add_argument("--no-plots", action="store_true")
     p.add_argument("--diagnose", nargs=2, metavar=("UT_START", "UT_END"),
                    help="Dump per-bin spectra and features for UT window, e.g. 06:00 07:00")
@@ -68,6 +71,7 @@ def main() -> None:
         min_consecutive=args.min_consecutive,
         energy_cutoff_low=args.energy_cutoff,
         figures_dir=str(FIGURES) if not args.no_plots else None,
+        threshold_compare_values=tuple(args.threshold_compare_values),
     )
 
     n = len(result.features.times)
@@ -77,7 +81,11 @@ def main() -> None:
     print(f"Beam timesteps (smoothed): {n_beam} ({100*n_beam/max(n,1):.1f}%)")
 
     if args.diagnose:
-        diag_path = Path(__file__).resolve().parents[1] / "figures" / "diagnose.txt"
+        # dated diagnose file in the same per-day folder as the figures
+        date_str = args.trange[0].split("/")[0]
+        diag_dir = FIGURES / date_str
+        diag_dir.mkdir(parents=True, exist_ok=True)
+        diag_path = diag_dir / f"th{args.probe}_beam_{date_str}_diagnose.txt"
         diagnose_window(result.spectra, result.features, result.classification,
                         params, args.diagnose[0], args.diagnose[1],
                         out_path=str(diag_path))

@@ -27,6 +27,7 @@ class ESDDistribution:
     phi_offset: np.ndarray     # (ntime,) spin-phase correction
     en_ind: np.ndarray         # (ntime,) energy mode idx per timestep
     an_ind: np.ndarray         # (ntime,) angle mode idx per timestep
+    onecount: np.ndarray       # (ntime, 32, 176) one-count eflux level per bin
 
 
 def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDistribution:
@@ -48,7 +49,9 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
 
     all_times, all_eflux, all_bins = [], [], []
     all_en_ind, all_an_ind, all_phi_offset = [], [], []
+    all_eff, all_integ_t = [], []
     energy_table = phi_table = theta_table = domega_table = None
+    gf_table = geom_factor = None
 
     for cdf_path in cdf_files:
         cdf = CDF(cdf_path)
@@ -91,6 +94,8 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
         en_ind = cdf.varget("en_ind")[mask]
         an_ind = cdf.varget("an_ind")[mask]
         phi_offset_data = cdf.varget("phi_offset")[mask]
+        eff_data = cdf.varget("eff")[mask]
+        integ_t_data = cdf.varget("integ_t")[mask]
 
         all_times.append(unix_times)
         all_eflux.append(eflux)
@@ -98,12 +103,16 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
         all_en_ind.append(en_ind)
         all_an_ind.append(an_ind)
         all_phi_offset.append(phi_offset_data)
+        all_eff.append(eff_data)
+        all_integ_t.append(integ_t_data)
 
         if energy_table is None:
             energy_table = cdf.varget("energy")     # (32, 5)
             theta_table = cdf.varget("theta")        # (32, 176, 3)
             phi_table = cdf.varget("phi")             # (32, 176, 3)
             domega_table = cdf.varget("domega")       # (32, 176, 3)
+            gf_table = cdf.varget("gf")               # (32, 176, 3)
+            geom_factor = float(cdf.varget("geom_factor"))
 
         del cdf
 
@@ -116,6 +125,8 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
     en_ind = np.concatenate(all_en_ind)
     an_ind = np.concatenate(all_an_ind)
     phi_offset = np.concatenate(all_phi_offset)
+    eff = np.concatenate(all_eff)
+    integ_t = np.concatenate(all_integ_t)
 
     mode_en = int(np.median(en_ind))
     mode_an = int(np.median(an_ind))
@@ -123,12 +134,20 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
     theta = theta_table[:, :, mode_an]
     phi = phi_table[:, :, mode_an]
     domega = domega_table[:, :, mode_an]
+    gf_mode = gf_table[:, :, mode_an]
+
+    # one-count eflux per bin, inverts the thm_convert_esa_units eflux scale
+    # eflux = counts / (integ_t * geom_factor * gf * eff), so one count is 1/that
+    # this is the perp channels noise floor downstream, decoupled from signal amplitude
+    gf_eff = geom_factor * gf_mode[None, :, :] * eff
+    with np.errstate(divide="ignore", invalid="ignore"):
+        onecount = np.where(gf_eff > 0, 1.0 / (integ_t[:, None, None] * gf_eff), np.nan)
 
     return ESDDistribution(
         times=times, eflux=eflux, energy=energy,
         theta=theta, phi=phi, domega=domega,
         bins_mask=bins_mask, phi_offset=phi_offset,
-        en_ind=en_ind, an_ind=an_ind,
+        en_ind=en_ind, an_ind=an_ind, onecount=onecount,
     )
 
 
@@ -190,8 +209,11 @@ class PitchAngleSpectra:
     omni: np.ndarray           # (ntime, nenergy) omnidirectional flux
     para: np.ndarray           # (ntime, nenergy) field-aligned 0-30 deg
     anti: np.ndarray           # (ntime, nenergy) anti-field-aligned 150-180 deg
+    perp: np.ndarray           # (ntime, nenergy) perpendicular 75-105 deg
+    perp_floor: np.ndarray     # (ntime, nenergy) one-count noise floor of perp cone avg
     pa_coverage_para: np.ndarray  # (ntime,) frac of solid angle in para cone
     pa_coverage_anti: np.ndarray  # (ntime,) frac of solid angle in anti cone
+    pa_coverage_perp: np.ndarray  # (ntime,) frac of solid angle in perp cone
 
 
 def _compute_pitch_angles(theta_inst: np.ndarray, phi_inst: np.ndarray,
@@ -230,6 +252,7 @@ def compute_pa_spectra(
     b_dsl: np.ndarray,
     para_range: tuple[float, float] = (0.0, 30.0),
     anti_range: tuple[float, float] = (150.0, 180.0),
+    perp_range: tuple[float, float] = (75.0, 105.0),
 ) -> PitchAngleSpectra:
     # reduces 3d dist to pa-gated energy spectra per timestep
     b_interp = interp1d(b_times, b_dsl, axis=0, kind="linear",
@@ -242,8 +265,11 @@ def compute_pa_spectra(
     omni = np.full((ntime, nenergy), np.nan)
     para = np.full((ntime, nenergy), np.nan)
     anti = np.full((ntime, nenergy), np.nan)
+    perp = np.full((ntime, nenergy), np.nan)
+    perp_floor = np.full((ntime, nenergy), np.nan)
     cov_para = np.zeros(ntime)
     cov_anti = np.zeros(ntime)
+    cov_perp = np.zeros(ntime)
 
     for t in range(ntime):
         b_vec = b_interp(dist.times[t])
@@ -261,6 +287,7 @@ def compute_pa_spectra(
 
             f = flux[e, valid]
             dw = dist.domega[e, valid]
+            oc = dist.onecount[t, e, valid]
 
             th_bins = dist.theta[e, valid]
             ph_bins = dist.phi[e, valid]
@@ -297,14 +324,26 @@ def compute_pa_spectra(
                 anti[t, e] = np.sum(f[in_anti] * dw[in_anti]) / w_anti
                 cov_anti[t] = max(cov_anti[t], w_anti / total_weight)
 
+            # perp cone is the clean background for R, beam depletes it not enhances
+            in_perp = good & (pa >= perp_range[0]) & (pa <= perp_range[1])
+            if np.any(in_perp):
+                w_perp = dw[in_perp].sum()
+                perp[t, e] = np.sum(f[in_perp] * dw[in_perp]) / w_perp
+                # one-count noise floor through the same solid-angle weighting
+                perp_floor[t, e] = np.sum(oc[in_perp] * dw[in_perp]) / w_perp
+                cov_perp[t] = max(cov_perp[t], w_perp / total_weight)
+
     return PitchAngleSpectra(
         times=dist.times,
         energy=dist.energy,
         omni=omni,
         para=para,
         anti=anti,
+        perp=perp,
+        perp_floor=perp_floor,
         pa_coverage_para=cov_para,
         pa_coverage_anti=cov_anti,
+        pa_coverage_perp=cov_perp,
     )
 
 
@@ -320,8 +359,13 @@ class FeatureTable:
     energy_ratio: np.ndarray     # e_flow / e_th from moments
     peak_prom: np.ndarray        # log10 prominence of narrow line inside the coherent run
     peak_width: np.ndarray       # fwhm of that line in bins
-    e_line: np.ndarray           # energy of the line, ev
+    e_line: np.ndarray           # energy of the line, ev (E_beam)
+    de_line: np.ndarray          # line fwhm in ev (delta energy)
+    eb_over_de: np.ndarray       # e_line / line fwhm, beam monochromaticity
+    r_beam: np.ndarray           # flux-weighted mean R (dominant cone / perp) over the run
+    pa_max_ratio: np.ndarray     # max para / max anti over run bins, dominant/sub, flux transfer
     coherent_ok: np.ndarray      # bool, a real coherent directional run was found
+    perp_depleted: np.ndarray    # bool, run had sub-floor perp flux so R denom was clamped
     pa_ok_both: np.ndarray       # bool, both cones sampled, asym is trustworthy
     pa_ok_para: np.ndarray       # bool, para cone sampled, p2o is trustworthy
 
@@ -358,7 +402,12 @@ def extract_features(
     peak_prom = np.full(ntime, np.nan)
     peak_width = np.full(ntime, np.nan)
     e_line = np.full(ntime, np.nan)
+    de_line = np.full(ntime, np.nan)
+    eb_over_de = np.full(ntime, np.nan)
+    r_beam = np.full(ntime, np.nan)
+    pa_max_ratio = np.full(ntime, np.nan)
     coherent_ok = np.zeros(ntime, dtype=bool)
+    perp_depleted = np.zeros(ntime, dtype=bool)
     pa_ok_both = np.zeros(ntime, dtype=bool)
     pa_ok_para = np.zeros(ntime, dtype=bool)
 
@@ -376,6 +425,8 @@ def extract_features(
         omni_t = spectra.omni[t, valid_e]
         para_t = spectra.para[t, valid_e]
         anti_t = spectra.anti[t, valid_e]
+        perp_t = spectra.perp[t, valid_e]
+        perp_floor_t = spectra.perp_floor[t, valid_e]
 
         # per-feature coverage: asym needs both cones, p2o only needs para
         para_ok = spectra.pa_coverage_para[t] >= pa_coverage_threshold
@@ -414,23 +465,33 @@ def extract_features(
         with np.errstate(invalid="ignore", divide="ignore"):
             asym_bins = np.where(denom_asym > 0,
                                  (para_t - anti_t) / denom_asym, np.nan)
-        # per-bin p2o and dominant-cone enhancement
+        # per-bin p2o, feeds the para_to_omni feature only
         with np.errstate(invalid="ignore", divide="ignore"):
             p2o_bins = np.where(omni_finite > 0,
                                 para_t / omni_finite, np.nan)
-            a2o_bins = np.where(omni_finite > 0,
-                                anti_t / omni_finite, np.nan)
 
-        # dominant cone / omni, direction-agnostic enhancement
-        # high value means one cone (whichever is dominant) is brighter than omni
+        # R = dominant cone / perp cone, the coherent_dir gate ratio
+        # omni includes the beam cone so it partially cancels the signal, perp is a
+        # clean background since a field-aligned beam depletes the perpendicular cone
+        # clamp perp at its own one-count noise floor, not the omni peak, so a depleted
+        # perp cant blow R up and perp_depleted stays comparable across intervals
+        perp_subfloor = np.isfinite(perp_t) & (perp_t < perp_floor_t)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            perp_eff = np.where(np.isfinite(perp_t),
+                                np.maximum(perp_t, perp_floor_t), np.nan)
+            r_para = np.where(perp_eff > 0, para_t / perp_eff, np.nan)
+            r_anti = np.where(perp_eff > 0, anti_t / perp_eff, np.nan)
+
+        # dominant cone / perp, direction-agnostic enhancement
+        # high value means the dominant cone is brighter than the perp background
         with np.errstate(invalid="ignore"):
             dir_enhanced = np.where(
-                np.isfinite(asym_bins) & (asym_bins >= 0), p2o_bins,
-                np.where(np.isfinite(asym_bins) & (asym_bins < 0), a2o_bins, np.nan)
+                np.isfinite(asym_bins) & (asym_bins >= 0), r_para,
+                np.where(np.isfinite(asym_bins) & (asym_bins < 0), r_anti, np.nan)
             )
 
         # a bin qualifies if flux-floor cleared, asym magnitude clears gate,
-        # and the dominant cone is enhanced over omni
+        # and the dominant cone is enhanced over the perp background
         with np.errstate(invalid="ignore"):
             qual = (flux_mask &
                     np.isfinite(asym_bins) &
@@ -480,10 +541,21 @@ def extract_features(
             # flux-weighted avg over only the qualifying bins in the run
             # gaps are excluded so their non-beam contribution doesnt pollute the avg
             idx_arr = np.array(best_idxs)
+            # flag if any run bin leaned on a clamped (depleted) perp denominator
+            perp_depleted[t] = bool(np.any(perp_subfloor[idx_arr]))
             w = omni_finite[idx_arr]
             w_sum = w.sum()
             asymmetry[t] = np.sum(asym_bins[idx_arr] * w) / w_sum
             e_beam[t] = np.sum(e_valid[idx_arr] * w) / w_sum
+            # flux-weighted mean R over the run, per-beam directional enhancement
+            r_beam[t] = np.sum(dir_enhanced[idx_arr] * w) / w_sum
+            # max para vs max anti within the beam band, dominant/sub = flux transfer
+            run_para = para_t[idx_arr]
+            run_anti = anti_t[idx_arr]
+            mp = np.nanmax(run_para) if np.any(np.isfinite(run_para)) else np.nan
+            ma = np.nanmax(run_anti) if np.any(np.isfinite(run_anti)) else np.nan
+            if np.isfinite(mp) and np.isfinite(ma) and mp > 0 and ma > 0:
+                pa_max_ratio[t] = max(mp, ma) / min(mp, ma)
             if pa_ok_para[t]:
                 p2o_vals = p2o_bins[idx_arr]
                 p2o_ok = np.isfinite(p2o_vals)
@@ -522,6 +594,9 @@ def extract_features(
                 # run band in valid_e index space, allow 1 bin of slop
                 lo_b = min(best_idxs) - 1
                 hi_b = max(best_idxs) + 1
+                # energies on the compressed axis, for converting fwhm bins to ev
+                e_comp = e_valid[idx_map]
+                comp_x = np.arange(len(e_comp))
                 for j, pk in enumerate(pks):
                     b = idx_map[pk]
                     # line must sit inside the directional run to count
@@ -532,6 +607,13 @@ def extract_features(
                         peak_prom[t] = prom
                         peak_width[t] = props["widths"][j]
                         e_line[t] = e_valid[b]
+                        # de = line fwhm in ev from the half-max crossings,
+                        # eb/de is how monoenergetic the beam line is
+                        e_left = np.interp(props["left_ips"][j], comp_x, e_comp)
+                        e_right = np.interp(props["right_ips"][j], comp_x, e_comp)
+                        de = abs(e_right - e_left)
+                        de_line[t] = de
+                        eb_over_de[t] = e_valid[b] / de if de > 0 else np.nan
 
         # e_flow/e_th, ratio of bulk kinetic to thermal energy, beams have higher ratio
         if vel_interp is not None and temp_interp is not None:
@@ -555,7 +637,12 @@ def extract_features(
         peak_prom=peak_prom,
         peak_width=peak_width,
         e_line=e_line,
+        de_line=de_line,
+        eb_over_de=eb_over_de,
+        r_beam=r_beam,
+        pa_max_ratio=pa_max_ratio,
         coherent_ok=coherent_ok,
+        perp_depleted=perp_depleted,
         pa_ok_both=pa_ok_both,
         pa_ok_para=pa_ok_para,
     )
@@ -756,8 +843,14 @@ def diagnose_window(
                      f"peak_width={features.peak_width[t]:.2f}bins "
                      f"e_line={features.e_line[t]:.1f}eV "
                      f"coherent_ok={features.coherent_ok[t]}")
+        lines.append(f"  eb_over_de={features.eb_over_de[t]:.2f} "
+                     f"de_line={features.de_line[t]:.1f}eV "
+                     f"r_beam={features.r_beam[t]:.3f} "
+                     f"pa_max_ratio={features.pa_max_ratio[t]:.3f} "
+                     f"perp_depleted={features.perp_depleted[t]}")
         lines.append(f"  pa_cov: para={spectra.pa_coverage_para[t]:.3f} "
                      f"anti={spectra.pa_coverage_anti[t]:.3f} "
+                     f"perp={spectra.pa_coverage_perp[t]:.3f} "
                      f"(both_ok={features.pa_ok_both[t]} para_ok={features.pa_ok_para[t]})")
         lines.append(f"  score={classification.beam_score[t]:.3f} "
                      f"is_beam={classification.is_beam[t]} dir={classification.beam_direction[t]}")
@@ -770,9 +863,11 @@ def diagnose_window(
         peak = np.max(omni_finite) if np.any(omni_finite > 0) else 0.0
         floor = params.beam_flux_floor * peak
 
+        perp = spectra.perp[t]
+        pfloor = spectra.perp_floor[t]
         lines.append(f"  per-bin (omni >= {floor:.2e}):")
         lines.append(f"    {'E[eV]':>9} {'omni':>10} {'para':>10} {'anti':>10} "
-                     f"{'asym':>7} {'p2o':>6}")
+                     f"{'perp':>10} {'asym':>7} {'p2o':>6} {'R':>6}")
         for b in range(len(e)):
             if not np.isfinite(omni[b]) or omni[b] < floor:
                 continue
@@ -780,10 +875,20 @@ def diagnose_window(
                     (anti[b] if np.isfinite(anti[b]) else 0)
             ab = (para[b] - anti[b]) / denom if denom > 0 else np.nan
             pb = para[b] / omni[b] if omni[b] > 0 and np.isfinite(para[b]) else np.nan
+            # R = dominant cone / clamped perp, mirrors the coherent_dir gate
+            pe = perp[b]
+            pf = pfloor[b]
+            if np.isfinite(pe):
+                perp_eff = max(pe, pf) if np.isfinite(pf) else pe
+                dom = para[b] if (np.isfinite(ab) and ab >= 0) else anti[b]
+                rb = dom / perp_eff if perp_eff > 0 and np.isfinite(dom) else np.nan
+            else:
+                rb = np.nan
             lines.append(f"    {e[b]:>9.1f} {omni[b]:>10.2e} "
                          f"{para[b] if np.isfinite(para[b]) else float('nan'):>10.2e} "
                          f"{anti[b] if np.isfinite(anti[b]) else float('nan'):>10.2e} "
-                         f"{ab:>7.3f} {pb:>6.3f}")
+                         f"{pe if np.isfinite(pe) else float('nan'):>10.2e} "
+                         f"{ab:>7.3f} {pb:>6.3f} {rb:>6.3f}")
 
     text = "\n".join(lines)
     if out_path:
@@ -862,6 +967,12 @@ def plot_spectra_snapshot(
     return ax
 
 
+def _score_to_size(score, thr):
+    # marker size grows with score above thr, borderline small, strong large
+    frac = np.clip((score - thr) / max(1.0 - thr, 1e-6), 0.0, 1.0)
+    return 12.0 + 70.0 * frac
+
+
 def plot_feature_timeseries(
     features: FeatureTable,
     classification: ClassificationResult,
@@ -900,7 +1011,7 @@ def plot_feature_timeseries(
     if title:
         ax.set_title(title)
 
-    # bottom panel, same spectrogram with beam detections overlaid at e_beam
+    # bottom panel, same spectrogram with beam detections overlaid at e_peak
     axb = axes[7]
     pcmb = axb.pcolormesh(times_dt, e_plot, z,
                           norm=plt.matplotlib.colors.LogNorm(vmin=1e3, vmax=1e8),
@@ -911,16 +1022,17 @@ def plot_feature_timeseries(
     divb = make_axes_locatable(axb)
     caxb = divb.append_axes("right", size="1.5%", pad=0.05)
     fig.colorbar(pcmb, cax=caxb, label="eflux")
-    # markers at e_beam, red para blue anti
+    # markers at e_peak so they sit on the flux peak band, red para blue anti
     is_b = classification.is_beam
     t_arr = np.array(times_dt, dtype=object)
     for mask, col, lab in ((is_b & (classification.beam_direction > 0), "red", "para beam"),
                            (is_b & (classification.beam_direction < 0), "blue", "anti beam")):
         if np.any(mask):
-            axb.scatter(t_arr[mask], features.e_beam[mask], s=24, c=col,
-                        edgecolors="white", linewidths=0.5, label=lab, zorder=3)
+            axb.scatter(t_arr[mask], features.e_peak[mask],
+                        s=_score_to_size(classification.beam_score[mask], params.score_threshold),
+                        c=col, edgecolors="white", linewidths=0.5, label=lab, zorder=3)
     if np.any(is_b):
-        axb.legend(loc="upper right", fontsize=8)
+        axb.legend(loc="upper right", fontsize=8, title="size ∝ beam score")
 
     # invisible spacer on the middle panels so they share the spectrogram width
     for other_ax in axes[1:7]:
@@ -1063,6 +1175,203 @@ def plot_curated_snapshots(
     print(f"[OK] wrote {out_png}")
 
 
+def write_beam_table(
+    features: FeatureTable,
+    classification: ClassificationResult,
+    out_csv: str,
+) -> int:
+    # one row per flagged timestep with the per-beam derived quantities
+    import csv
+    from datetime import datetime, timezone
+
+    idxs = np.where(classification.is_beam)[0]
+    cols = ["ut", "unix", "direction", "e_beam_eV", "delta_e_eV", "eb_over_de",
+            "r_beam", "pa_max_ratio", "asymmetry", "e_peak_eV", "beam_score"]
+    with open(out_csv, "w", newline="") as fh:
+        wr = csv.writer(fh)
+        wr.writerow(cols)
+        for t in idxs:
+            ut = datetime.fromtimestamp(features.times[t], tz=timezone.utc)
+            wr.writerow([
+                ut.strftime("%Y-%m-%d %H:%M:%S"),
+                f"{features.times[t]:.0f}",
+                int(classification.beam_direction[t]),
+                f"{features.e_line[t]:.1f}",
+                f"{features.de_line[t]:.1f}",
+                f"{features.eb_over_de[t]:.3f}",
+                f"{features.r_beam[t]:.3f}",
+                f"{features.pa_max_ratio[t]:.3f}",
+                f"{features.asymmetry[t]:.3f}",
+                f"{features.e_peak[t]:.1f}",
+                f"{classification.beam_score[t]:.3f}",
+            ])
+    print(f"[OK] wrote {out_csv} ({len(idxs)} beams)")
+    return len(idxs)
+
+
+def plot_beam_histograms(
+    features: FeatureTable,
+    classification: ClassificationResult,
+    out_png: str,
+    title: str = "",
+):
+    # 4-panel hist of the per-beam values over flagged timesteps
+    import matplotlib.pyplot as plt
+
+    is_b = classification.is_beam
+
+    def _hist(ax, data, label, logx=False):
+        d = data[is_b]
+        d = d[np.isfinite(d)]
+        if d.size == 0:
+            ax.text(0.5, 0.5, f"no data\n{label}", ha="center", va="center")
+            ax.set_title(label)
+            return
+        if logx and np.all(d > 0) and d.min() < d.max():
+            bins = np.logspace(np.log10(d.min()), np.log10(d.max()), 25)
+            ax.hist(d, bins=bins)
+            ax.set_xscale("log")
+        else:
+            ax.hist(d, bins=25)
+        ax.set_xlabel(label)
+        ax.set_ylabel("count")
+        ax.set_title(f"{label}  (n={d.size}, median={np.median(d):.2f})")
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 9))
+    _hist(axes[0, 0], features.r_beam, "R (flux-weighted, beam)")
+    _hist(axes[0, 1], features.e_line, "E_beam = e_line [eV]", logx=True)
+    _hist(axes[1, 0], features.de_line, "delta E = line FWHM [eV]", logx=True)
+    _hist(axes[1, 1], features.eb_over_de, "E_beam / delta E")
+    if title:
+        fig.suptitle(title)
+    plt.tight_layout()
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] wrote {out_png}")
+
+
+def plot_threshold_comparison(
+    spectra: PitchAngleSpectra,
+    moments: dict,
+    params: ClassifierParams,
+    out_png: str,
+    thresholds: tuple = (1.0, 1.2, 1.5, 2.0),
+    energy_cutoff_low: float = 30.0,
+    title: str = "",
+):
+    # small multiples, left col omni spectrogram per coherent_dir_min (R) value
+    # beam detections overlaid as dots at the omni flux peak (e_peak)
+    # right col E_beam/delta_E (eb_over_de) of those beams, dots colored by value
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    from datetime import datetime, timezone
+
+    times_dt = [datetime.fromtimestamp(t, tz=timezone.utc) for t in spectra.times]
+    e_valid = spectra.energy > 0
+    e_plot = spectra.energy[e_valid]
+    z = spectra.omni[:, e_valid].T
+    z = np.where(z > 0, z, np.nan)
+    t_arr = np.array(times_dt, dtype=object)
+
+    n = len(thresholds)
+    fig, axes = plt.subplots(n, 2, figsize=(22, 3.2 * n), sharex=True)
+    axes = np.atleast_2d(axes)
+
+    # R threshold lives in extract_features, so re-extract per value
+    results = []
+    for thr in thresholds:
+        feat = extract_features(spectra, moments,
+                                energy_cutoff_low=energy_cutoff_low,
+                                pa_coverage_threshold=params.min_coverage,
+                                beam_flux_floor=params.beam_flux_floor,
+                                coherent_asym_min=params.coherent_asym_min,
+                                coherent_dir_min=thr,
+                                coherent_min_bins=params.coherent_min_bins,
+                                peak_width_max=params.peak_width_max,
+                                peak_wlen=params.peak_wlen)
+        results.append((feat, classify_beams(feat, params)))
+
+    # shared eb_over_de y-range so rows stay comparable, median is per-row
+    eb_all = [f.eb_over_de[c.is_beam & np.isfinite(f.eb_over_de)] for f, c in results]
+    eb_all = np.concatenate(eb_all) if eb_all else np.array([])
+    if eb_all.size and eb_all.max() > eb_all.min():
+        pad = 0.05 * (eb_all.max() - eb_all.min())
+        eb_lo, eb_hi = float(eb_all.min() - pad), float(eb_all.max() + pad)
+    else:
+        eb_lo, eb_hi = 0.0, 1.0
+
+    for i, (thr, (feat, cls)) in enumerate(zip(thresholds, results)):
+        ax = axes[i, 0]
+        pcm = ax.pcolormesh(times_dt, e_plot, z,
+                            norm=plt.matplotlib.colors.LogNorm(vmin=1e3, vmax=1e8),
+                            cmap="jet", shading="auto")
+        ax.set_yscale("log")
+        ax.set_ylabel("Energy [eV]")
+        ax.set_ylim(5, 30000)
+        div = make_axes_locatable(ax)
+        cax = div.append_axes("right", size="1.5%", pad=0.05)
+        fig.colorbar(pcm, cax=cax, label="eflux")
+        is_b = cls.is_beam
+        for mask, col in ((is_b & (cls.beam_direction > 0), "red"),
+                          (is_b & (cls.beam_direction < 0), "blue")):
+            if np.any(mask):
+                ax.scatter(t_arr[mask], feat.e_peak[mask],
+                           s=_score_to_size(cls.beam_score[mask], params.score_threshold),
+                           c=col, edgecolors="white", linewidths=0.5, zorder=3)
+        ax.set_title(f"coherent_dir_min (R) >= {thr}   ({int(is_b.sum())} beams)")
+
+        # right col, eb_over_de of detected beams colored by direction like left
+        rax = axes[i, 1]
+        rdiv = make_axes_locatable(rax)
+        rcax = rdiv.append_axes("right", size="1.5%", pad=0.05)
+        rcax.set_visible(False)  # spacer, keeps right panel width matching left
+        ebok = np.isfinite(feat.eb_over_de)
+        for mask, col in ((is_b & ebok & (cls.beam_direction > 0), "red"),
+                          (is_b & ebok & (cls.beam_direction < 0), "blue")):
+            if np.any(mask):
+                rax.scatter(t_arr[mask], feat.eb_over_de[mask], s=20, c=col,
+                            edgecolors="white", linewidths=0.5, zorder=3)
+        ebmask = is_b & ebok
+        if eb_all.size:
+            rax.set_ylim(eb_lo, eb_hi)
+        if np.any(ebmask):
+            # per-row median of this threshold's detected beams
+            row_med = float(np.median(feat.eb_over_de[ebmask]))
+            rax.axhline(row_med, color="gray", ls="--", lw=0.8, alpha=0.7, zorder=2)
+            rax.text(0.99, row_med, f"median {row_med:.2f}", color="gray",
+                     fontsize=8, ha="right", va="bottom",
+                     transform=rax.get_yaxis_transform())
+        else:
+            rax.text(0.5, 0.5, "no beams", ha="center", va="center",
+                     transform=rax.transAxes)
+        rax.set_ylabel("E_beam / delta E")
+        rax.set_title(f"R >= {thr}: E_beam/delta_E")
+
+    # time ticks under every row, smaller font since they now repeat
+    for row in range(n):
+        for j in (0, 1):
+            a = axes[row, j]
+            a.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+            a.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+            a.tick_params(axis="x", labelbottom=True, labelsize=7)
+    for j in (0, 1):
+        axes[-1, j].set_xlabel("UT")
+    if title:
+        fig.suptitle(title)
+    # direction key centered below the suptitle, sign convention from classify_beams
+    fig.text(0.49, 0.965, "red = parallel", color="red", fontsize=9,
+             ha="right", va="top")
+    fig.text(0.51, 0.965, "blue = antiparallel", color="blue", fontsize=9,
+             ha="left", va="top")
+    fig.text(0.5, 0.945, "dot size in left col grows with beam score", color="gray",
+             fontsize=7, ha="center", va="top")
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] wrote {out_png}")
+
+
 @dataclass
 class PipelineResult:
     spectra: PitchAngleSpectra
@@ -1080,6 +1389,7 @@ def run_pipeline(
     min_consecutive: int = 1,
     energy_cutoff_low: float = 30.0,
     figures_dir: str | None = None,
+    threshold_compare_values: tuple = (1.0, 1.2, 1.5, 2.0),
 ) -> PipelineResult:
     if params is None:
         params = ClassifierParams()
@@ -1129,10 +1439,11 @@ def run_pipeline(
 
     if figures_dir is not None:
         print(f"\n=== Phase 5: Plotting ===")
-        fig_dir = Path(figures_dir)
+        date_str = trange[0].split("/")[0]
+        # per-day subfolder keeps the top-level figures dir clean
+        fig_dir = Path(figures_dir) / date_str
         fig_dir.mkdir(parents=True, exist_ok=True)
 
-        date_str = trange[0].split("/")[0].replace("-", "")
         prefix = f"th{probe}_beam_{date_str}"
 
         plot_feature_timeseries(
@@ -1145,6 +1456,25 @@ def run_pipeline(
         plot_curated_snapshots(
             spectra, smoothed, features,
             str(fig_dir / f"{prefix}_snapshots.png"),
+        )
+
+        write_beam_table(
+            features, smoothed,
+            str(fig_dir / f"{prefix}_beams.csv"),
+        )
+
+        plot_beam_histograms(
+            features, smoothed,
+            str(fig_dir / f"{prefix}_histograms.png"),
+            title=f"THEMIS-{probe.upper()} Beam Distributions {trange[0]}",
+        )
+
+        plot_threshold_comparison(
+            spectra, moments, params,
+            str(fig_dir / f"{prefix}_threshold_compare.png"),
+            thresholds=tuple(threshold_compare_values),
+            energy_cutoff_low=energy_cutoff_low,
+            title=f"THEMIS-{probe.upper()} R-threshold Comparison {trange[0]}",
         )
 
     return PipelineResult(
