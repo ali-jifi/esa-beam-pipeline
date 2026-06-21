@@ -98,7 +98,7 @@ Beam direction is tagged (+1 parallel, -1 anti-parallel) from the asymmetry sign
 
 ### Phase 5 - Plotting
 
-- `plot_feature_timeseries()` - 8-panel overview: omni spectrogram, E_peak, width, asymmetry, peak prominence, beam score, a classification color bar (red = parallel beam, blue = anti-parallel, orange = unknown direction, gray = no beam), and a bottom spectrogram with beam detections overlaid at `e_beam` (red para, blue anti). Takes `ClassifierParams` so every threshold guide-line is driven by the actual params instead of hardcoded values. The **Peak Prominence** panel (the AND-gate line) carries its threshold and replaced the old E_flow/E_th panel; the width and score panels also have threshold lines.
+- `plot_feature_timeseries()` - 8-panel overview: omni spectrogram, E_peak, width, asymmetry, peak prominence, beam score, a classification color bar (red = parallel beam, blue = anti-parallel, orange = unknown direction, gray = no beam), and a bottom spectrogram with beam detections overlaid at `e_peak` (red para, blue anti, dot size grows with beam score). Takes `ClassifierParams` so every threshold guide-line is driven by the actual params instead of hardcoded values. The **Peak Prominence** panel (the AND-gate line) carries its threshold and replaced the old E_flow/E_th panel; the width and score panels also have threshold lines.
 - `plot_curated_snapshots()` - picks representative timesteps (confirmed beams, plasma sheet, borderline cases) and plots the three-curve energy spectra at each.
 - `diagnose_window()` - dumps per-timestep spectra and features, including the per-bin omni/para/anti/perp flux and R, plus `peak_prom`, `peak_width`, `e_line`, `eb_over_de`, `de_line`, `r_beam`, `pa_max_ratio`, `coherent_ok`, and `perp_depleted`.
 
