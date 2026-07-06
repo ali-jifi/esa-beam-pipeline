@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import glob
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +12,25 @@ from pyspedas import get_data
 from pyspedas.projects import themis
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
+
+
+def apply_hours(trange: list[str], hours: list[int] | None) -> list[str]:
+    # hour window on the start date, end rolls past midnight if h1 <= h0
+    if hours is None:
+        return trange
+    from datetime import datetime, timedelta
+    h0, h1 = hours
+    d0 = trange[0].split("/")[0]
+    d1 = d0
+    if h1 <= h0:
+        d1 = (datetime.strptime(d0, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    return [f"{d0}/{h0:02d}:00", f"{d1}/{h1:02d}:00"]
+
+
+def _trange_tag(trange: list[str]) -> str:
+    # hour-window suffix so sub-day runs dont clobber full-day outputs
+    tags = [s.split("/")[1].replace(":", "") for s in trange if "/" in s]
+    return "_" + "-".join(tags) if tags else ""
 
 
 @dataclass
@@ -31,7 +50,7 @@ class ESDDistribution:
 
 
 def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDistribution:
-    # reads cdf directly cuz pyspedas doesnt expose angle/energy lookup tables
+    # reads cdf directly bc pyspedas doesnt expose angle/energy lookup tables
     import os
     os.environ["THM_DATA_DIR"] = data_dir
 
@@ -169,6 +188,30 @@ def load_bfield_dsl(probe: str, trange: list[str], data_dir: str) -> tuple[np.nd
     return d.times, d.y
 
 
+def load_bfield_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    # returns (times, b_gsm) in nT, diagnose context only
+    import os
+    os.environ["THM_DATA_DIR"] = data_dir
+    themis.fgm(probe=probe, trange=trange, level="l2", time_clip=True)
+    for cad in ("fgs", "fgl", "fgh"):
+        d = get_data(f"th{probe}_{cad}_gsm")
+        if d is not None:
+            return d.times, d.y
+    raise ValueError(f"No FGM GSM data found for probe {probe}")
+
+
+def load_state_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
+    # returns (times, pos_gsm) in earth radii, diagnose context only
+    import os
+    os.environ["THM_DATA_DIR"] = data_dir
+    varname = f"th{probe}_pos_gsm"
+    themis.state(probe=probe, trange=trange, time_clip=True, varnames=[varname])
+    d = get_data(varname)
+    if d is None:
+        raise ValueError(f"No state GSM position found for probe {probe}")
+    return d.times, d.y / 6371.2
+
+
 def load_moments(probe: str, trange: list[str], data_dir: str) -> dict:
     import os
     os.environ["THM_DATA_DIR"] = data_dir
@@ -200,7 +243,6 @@ def load_moments(probe: str, trange: list[str], data_dir: str) -> dict:
 
     return result
 
-
 @dataclass
 class PitchAngleSpectra:
     # pa-gated energy spectra over a time interval
@@ -211,10 +253,12 @@ class PitchAngleSpectra:
     anti: np.ndarray           # (ntime, nenergy) anti-field-aligned 150-180 deg
     perp: np.ndarray           # (ntime, nenergy) perpendicular 75-105 deg
     perp_floor: np.ndarray     # (ntime, nenergy) one-count noise floor of perp cone avg
+    para_sig: np.ndarray       # (ntime, nenergy) poisson sigma of para cone avg
+    anti_sig: np.ndarray       # (ntime, nenergy) poisson sigma of anti cone avg
+    perp_sig: np.ndarray       # (ntime, nenergy) poisson sigma of perp cone avg
     pa_coverage_para: np.ndarray  # (ntime,) frac of solid angle in para cone
     pa_coverage_anti: np.ndarray  # (ntime,) frac of solid angle in anti cone
     pa_coverage_perp: np.ndarray  # (ntime,) frac of solid angle in perp cone
-
 
 def _compute_pitch_angles(theta_inst: np.ndarray, phi_inst: np.ndarray,
                           b_dsl: np.ndarray, phi_offset: float) -> np.ndarray:
@@ -245,6 +289,16 @@ def _compute_pitch_angles(theta_inst: np.ndarray, phi_inst: np.ndarray,
     cos_pa = np.clip(cos_pa, -1.0, 1.0)
     return np.rad2deg(np.arccos(cos_pa))
 
+def _cone_sigma(f: np.ndarray, dw: np.ndarray, oc: np.ndarray, w_sum: float) -> float:
+    # poisson sigma of the solid-angle weighted cone avg
+    # counts = flux/onecount so var(flux) = onecount * flux per bin
+    # floor flux at one count so an empty-but-sampled bin still has sigma > 0
+    fin = np.isfinite(oc) & (oc > 0) & np.isfinite(f)
+    if not np.any(fin) or w_sum <= 0:
+        return np.nan
+    fv = np.maximum(f[fin], oc[fin])
+    return float(np.sqrt(np.sum(dw[fin] ** 2 * oc[fin] * fv)) / w_sum)
+
 
 def compute_pa_spectra(
     dist: ESDDistribution,
@@ -257,7 +311,7 @@ def compute_pa_spectra(
     # reduces 3d dist to pa-gated energy spectra per timestep
     b_interp = interp1d(b_times, b_dsl, axis=0, kind="linear",
                         bounds_error=False, fill_value="extrapolate")
-
+    
     ntime = len(dist.times)
     nenergy = len(dist.energy)
     valid_energy_mask = dist.energy > 0
@@ -267,6 +321,9 @@ def compute_pa_spectra(
     anti = np.full((ntime, nenergy), np.nan)
     perp = np.full((ntime, nenergy), np.nan)
     perp_floor = np.full((ntime, nenergy), np.nan)
+    para_sig = np.full((ntime, nenergy), np.nan)
+    anti_sig = np.full((ntime, nenergy), np.nan)
+    perp_sig = np.full((ntime, nenergy), np.nan)
     cov_para = np.zeros(ntime)
     cov_anti = np.zeros(ntime)
     cov_perp = np.zeros(ntime)
@@ -314,6 +371,7 @@ def compute_pa_spectra(
             if np.any(in_para):
                 w_para = dw[in_para].sum()
                 para[t, e] = np.sum(f[in_para] * dw[in_para]) / w_para
+                para_sig[t, e] = _cone_sigma(f[in_para], dw[in_para], oc[in_para], w_para)
                 # coverage = frac of solid angle inside the cone
                 # low coverage means the avg is unreliable, drop it downstream
                 cov_para[t] = max(cov_para[t], w_para / total_weight)
@@ -322,6 +380,7 @@ def compute_pa_spectra(
             if np.any(in_anti):
                 w_anti = dw[in_anti].sum()
                 anti[t, e] = np.sum(f[in_anti] * dw[in_anti]) / w_anti
+                anti_sig[t, e] = _cone_sigma(f[in_anti], dw[in_anti], oc[in_anti], w_anti)
                 cov_anti[t] = max(cov_anti[t], w_anti / total_weight)
 
             # perp cone is the clean background for R, beam depletes it not enhances
@@ -329,8 +388,13 @@ def compute_pa_spectra(
             if np.any(in_perp):
                 w_perp = dw[in_perp].sum()
                 perp[t, e] = np.sum(f[in_perp] * dw[in_perp]) / w_perp
-                # one-count noise floor through the same solid-angle weighting
-                perp_floor[t, e] = np.sum(oc[in_perp] * dw[in_perp]) / w_perp
+                perp_sig[t, e] = _cone_sigma(f[in_perp], dw[in_perp], oc[in_perp], w_perp)
+                # one-count noise floor through the same solid-angle weighting,
+                # only over bins with a finite one-count level so nan cant poison it
+                ocp, dwp = oc[in_perp], dw[in_perp]
+                ocfin = np.isfinite(ocp) & (ocp > 0)
+                if np.any(ocfin):
+                    perp_floor[t, e] = np.sum(ocp[ocfin] * dwp[ocfin]) / dwp[ocfin].sum()
                 cov_perp[t] = max(cov_perp[t], w_perp / total_weight)
 
     return PitchAngleSpectra(
@@ -341,6 +405,9 @@ def compute_pa_spectra(
         anti=anti,
         perp=perp,
         perp_floor=perp_floor,
+        para_sig=para_sig,
+        anti_sig=anti_sig,
+        perp_sig=perp_sig,
         pa_coverage_para=cov_para,
         pa_coverage_anti=cov_anti,
         pa_coverage_perp=cov_perp,
@@ -364,6 +431,7 @@ class FeatureTable:
     eb_over_de: np.ndarray       # e_line / line fwhm, beam monochromaticity
     r_beam: np.ndarray           # flux-weighted mean R (dominant cone / perp) over the run
     pa_max_ratio: np.ndarray     # max para / max anti over run bins, dominant/sub, flux transfer
+    sig_margin: np.ndarray       # min |para-anti|/sigma over run bins, poisson confidence
     coherent_ok: np.ndarray      # bool, a real coherent directional run was found
     perp_depleted: np.ndarray    # bool, run had sub-floor perp flux so R denom was clamped
     pa_ok_both: np.ndarray       # bool, both cones sampled, asym is trustworthy
@@ -380,10 +448,10 @@ def extract_features(
     moments: dict,
     energy_cutoff_low: float = 30.0,
     pa_coverage_threshold: float = 0.01,
-    beam_flux_floor: float = 0.1,
     coherent_asym_min: float = 0.2,
     coherent_dir_min: float = 1.2,
     coherent_min_bins: int = 2,
+    n_sigma: float = 2.0,
     peak_width_max: float = 4.0,
     peak_wlen: int = 5,
 ) -> FeatureTable:
@@ -406,6 +474,7 @@ def extract_features(
     eb_over_de = np.full(ntime, np.nan)
     r_beam = np.full(ntime, np.nan)
     pa_max_ratio = np.full(ntime, np.nan)
+    sig_margin = np.full(ntime, np.nan)
     coherent_ok = np.zeros(ntime, dtype=bool)
     perp_depleted = np.zeros(ntime, dtype=bool)
     pa_ok_both = np.zeros(ntime, dtype=bool)
@@ -427,6 +496,9 @@ def extract_features(
         anti_t = spectra.anti[t, valid_e]
         perp_t = spectra.perp[t, valid_e]
         perp_floor_t = spectra.perp_floor[t, valid_e]
+        para_sig_t = spectra.para_sig[t, valid_e]
+        anti_sig_t = spectra.anti_sig[t, valid_e]
+        perp_sig_t = spectra.perp_sig[t, valid_e]
 
         # per-feature coverage: asym needs both cones, p2o only needs para
         para_ok = spectra.pa_coverage_para[t] >= pa_coverage_threshold
@@ -456,9 +528,8 @@ def extract_features(
 
         # scan all bins for max |asym|, catches beams that ride on a plasma sheet
         # peak-window approach misses beams when e_peak is the plasma sheet not the beam
-        peak_omni = omni_finite[idx_peak]
-        # flux floor mask, low-flux bins are noisy and produce spurious asym near +/-1
-        flux_mask = omni_finite >= beam_flux_floor * peak_omni
+        # no omni flux floor anymore, the n_sigma poisson gates below do that job
+        # without blocking faint beams far from the spectrum peak
 
         # per-bin signed asym
         denom_asym = para_t + anti_t
@@ -490,14 +561,28 @@ def extract_features(
                 np.where(np.isfinite(asym_bins) & (asym_bins < 0), r_anti, np.nan)
             )
 
-        # a bin qualifies if flux-floor cleared, asym magnitude clears gate,
-        # and the dominant cone is enhanced over the perp background
+        # poisson significance, var(flux) = onecount * flux per bin
+        # ratio gates ask is it big enough, sigma gates ask is it real given counts
+        dom_flux = np.where(np.isfinite(asym_bins) & (asym_bins >= 0), para_t,
+                            np.where(np.isfinite(asym_bins), anti_t, np.nan))
+        dom_sig = np.where(np.isfinite(asym_bins) & (asym_bins >= 0), para_sig_t,
+                           np.where(np.isfinite(asym_bins), anti_sig_t, np.nan))
         with np.errstate(invalid="ignore"):
-            qual = (flux_mask &
-                    np.isfinite(asym_bins) &
+            sig_d = np.sqrt(para_sig_t ** 2 + anti_sig_t ** 2)
+            # para/anti difference must beat the joint counting noise
+            asym_signif = np.abs(para_t - anti_t) >= n_sigma * sig_d
+            # dominant cone must sit above perp by more than the joint noise
+            r_signif = ((dom_flux - perp_eff) >=
+                        n_sigma * np.sqrt(dom_sig ** 2 + perp_sig_t ** 2))
+
+        # a bin qualifies if asym magnitude and R clear their ratio gates
+        # and both are statistically significant
+        with np.errstate(invalid="ignore"):
+            qual = (np.isfinite(asym_bins) &
                     np.isfinite(dir_enhanced) &
                     (np.abs(asym_bins) >= coherent_asym_min) &
-                    (dir_enhanced >= coherent_dir_min))
+                    (dir_enhanced >= coherent_dir_min) &
+                    asym_signif & r_signif)
 
         # find longest run of same-sign qualifying bins, allow gap of 1 non-qual bin
         # gap tolerance catches beams whose qualifying bins are interrupted by
@@ -549,6 +634,11 @@ def extract_features(
             e_beam[t] = np.sum(e_valid[idx_arr] * w) / w_sum
             # flux-weighted mean R over the run, per-beam directional enhancement
             r_beam[t] = np.sum(dir_enhanced[idx_arr] * w) / w_sum
+            # weakest para/anti significance in the run, logged for n_sigma calibration
+            with np.errstate(invalid="ignore", divide="ignore"):
+                marg = np.abs(para_t[idx_arr] - anti_t[idx_arr]) / sig_d[idx_arr]
+            if np.any(np.isfinite(marg)):
+                sig_margin[t] = float(np.nanmin(marg))
             # max para vs max anti within the beam band, dominant/sub = flux transfer
             run_para = para_t[idx_arr]
             run_anti = anti_t[idx_arr]
@@ -641,6 +731,7 @@ def extract_features(
         eb_over_de=eb_over_de,
         r_beam=r_beam,
         pa_max_ratio=pa_max_ratio,
+        sig_margin=sig_margin,
         coherent_ok=coherent_ok,
         perp_depleted=perp_depleted,
         pa_ok_both=pa_ok_both,
@@ -657,7 +748,8 @@ class ClassifierParams:
     energy_ratio_min: float = 0.5
     score_threshold: float = 0.4
     min_coverage: float = 0.01
-    beam_flux_floor: float = 0.1
+    # poisson significance for coherent bins, replaced the old omni flux floor
+    n_sigma: float = 2.0
     # per-bin gates for coherent-region detection
     coherent_asym_min: float = 0.2   # min |asym| per bin to qualify
     coherent_dir_min: float = 1.2    # min dominant cone / omni per bin
@@ -803,6 +895,8 @@ def diagnose_window(
     ut_start: str,
     ut_end: str,
     out_path: str | None = None,
+    pos_gsm: tuple[np.ndarray, np.ndarray] | None = None,
+    b_gsm: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> None:
     # dump per-bin spectra and features for timesteps in [ut_start, ut_end]
     # writes to file if out_path given, prints summary to stdout either way
@@ -819,6 +913,9 @@ def diagnose_window(
 
     t0 = parse_ut(ut_start, spectra.times[0])
     t1 = parse_ut(ut_end, spectra.times[0])
+    # window rolls past midnight
+    if t1 < t0:
+        t1 += 86400.0
     mask = (spectra.times >= t0) & (spectra.times <= t1)
     idxs = np.where(mask)[0]
 
@@ -830,11 +927,24 @@ def diagnose_window(
     lines.append(f"=== Diagnostic: {ut_start}-{ut_end} UT, {len(idxs)} timesteps ===")
     lines.append(f"params: asym_min={params.asymmetry_min} width_max={params.width_max} "
                  f"p2o_min={params.para_to_omni_min} score_thr={params.score_threshold} "
-                 f"flux_floor={params.beam_flux_floor}")
+                 f"n_sigma={params.n_sigma}")
+
+    def interp3(src, tt):
+        return [float(np.interp(tt, src[0], src[1][:, i])) for i in range(3)]
 
     for t in idxs:
         dt = datetime.fromtimestamp(spectra.times[t], tz=timezone.utc)
         lines.append(f"\n--- {dt.strftime('%H:%M:%S')} (idx={t}) ---")
+        ctx = []
+        if pos_gsm is not None:
+            x, y, z = interp3(pos_gsm, spectra.times[t])
+            ctx.append(f"pos_gsm=[{x:.2f}, {y:.2f}, {z:.2f}]RE")
+        if b_gsm is not None:
+            bx, by, bz = interp3(b_gsm, spectra.times[t])
+            bt = (bx * bx + by * by + bz * bz) ** 0.5
+            ctx.append(f"b_gsm=[{bx:.2f}, {by:.2f}, {bz:.2f}]nT |B|={bt:.2f}")
+        if ctx:
+            lines.append("  " + "  ".join(ctx))
         lines.append(f"  e_peak={features.e_peak[t]:.1f}eV e_beam={features.e_beam[t]:.1f}eV "
                      f"width={features.width[t]:.3f}")
         lines.append(f"  asym={features.asymmetry[t]:.3f} p2o={features.para_to_omni[t]:.3f} "
@@ -847,6 +957,7 @@ def diagnose_window(
                      f"de_line={features.de_line[t]:.1f}eV "
                      f"r_beam={features.r_beam[t]:.3f} "
                      f"pa_max_ratio={features.pa_max_ratio[t]:.3f} "
+                     f"sig_margin={features.sig_margin[t]:.2f} "
                      f"perp_depleted={features.perp_depleted[t]}")
         lines.append(f"  pa_cov: para={spectra.pa_coverage_para[t]:.3f} "
                      f"anti={spectra.pa_coverage_anti[t]:.3f} "
@@ -859,36 +970,47 @@ def diagnose_window(
         omni = spectra.omni[t]
         para = spectra.para[t]
         anti = spectra.anti[t]
-        omni_finite = np.where(np.isfinite(omni), omni, 0.0)
-        peak = np.max(omni_finite) if np.any(omni_finite > 0) else 0.0
-        floor = params.beam_flux_floor * peak
 
         perp = spectra.perp[t]
         pfloor = spectra.perp_floor[t]
-        lines.append(f"  per-bin (omni >= {floor:.2e}):")
+        psig = spectra.para_sig[t]
+        asig = spectra.anti_sig[t]
+        ppsig = spectra.perp_sig[t]
+        lines.append("  per-bin:")
         lines.append(f"    {'E[eV]':>9} {'omni':>10} {'para':>10} {'anti':>10} "
-                     f"{'perp':>10} {'asym':>7} {'p2o':>6} {'R':>6}")
+                     f"{'perp':>10} {'asym':>7} {'p2o':>6} {'R':>6} "
+                     f"{'asym_sg':>8} {'r_sg':>6}")
         for b in range(len(e)):
-            if not np.isfinite(omni[b]) or omni[b] < floor:
+            if not np.isfinite(omni[b]) or omni[b] <= 0:
                 continue
             denom = (para[b] if np.isfinite(para[b]) else 0) + \
                     (anti[b] if np.isfinite(anti[b]) else 0)
             ab = (para[b] - anti[b]) / denom if denom > 0 else np.nan
             pb = para[b] / omni[b] if omni[b] > 0 and np.isfinite(para[b]) else np.nan
+            # sigma margins, compare against n_sigma to see which gate failed
+            with np.errstate(invalid="ignore", divide="ignore"):
+                sd = np.sqrt(psig[b] ** 2 + asig[b] ** 2)
+                asg = abs(para[b] - anti[b]) / sd if sd > 0 else np.nan
             # R = dominant cone / clamped perp, mirrors the coherent_dir gate
             pe = perp[b]
             pf = pfloor[b]
             if np.isfinite(pe):
                 perp_eff = max(pe, pf) if np.isfinite(pf) else pe
                 dom = para[b] if (np.isfinite(ab) and ab >= 0) else anti[b]
+                ds = psig[b] if (np.isfinite(ab) and ab >= 0) else asig[b]
                 rb = dom / perp_eff if perp_eff > 0 and np.isfinite(dom) else np.nan
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    rn = np.sqrt(ds ** 2 + ppsig[b] ** 2)
+                    rsg = (dom - perp_eff) / rn if rn > 0 else np.nan
             else:
                 rb = np.nan
+                rsg = np.nan
             lines.append(f"    {e[b]:>9.1f} {omni[b]:>10.2e} "
                          f"{para[b] if np.isfinite(para[b]) else float('nan'):>10.2e} "
                          f"{anti[b] if np.isfinite(anti[b]) else float('nan'):>10.2e} "
                          f"{pe if np.isfinite(pe) else float('nan'):>10.2e} "
-                         f"{ab:>7.3f} {pb:>6.3f} {rb:>6.3f}")
+                         f"{ab:>7.3f} {pb:>6.3f} {rb:>6.3f} "
+                         f"{asg:>8.2f} {rsg:>6.2f}")
 
     text = "\n".join(lines)
     if out_path:
@@ -907,8 +1029,12 @@ def diagnose_window(
 
 
 def threshold_sensitivity(features: FeatureTable,
-                          param_ranges: dict | None = None) -> dict:
-    # varies thresholds, reports label stability
+                          param_ranges: dict | None = None,
+                          spectra: PitchAngleSpectra | None = None,
+                          moments: dict | None = None,
+                          energy_cutoff_low: float = 30.0,
+                          params: ClassifierParams | None = None) -> dict:
+    # varies thresholds around the run's params, reports label stability
     if param_ranges is None:
         param_ranges = {
             "asymmetry_min": [0.1, 0.15, 0.2, 0.3, 0.4],
@@ -917,25 +1043,36 @@ def threshold_sensitivity(features: FeatureTable,
         }
 
     results = {}
-    base = ClassifierParams()
+    base = params if params is not None else ClassifierParams()
     base_result = classify_beams(features, base)
     base_count = base_result.is_beam.sum()
 
     for param_name, values in param_ranges.items():
         counts = []
         for val in values:
-            kwargs = {
-                "asymmetry_min": base.asymmetry_min,
-                "width_max": base.width_max,
-                "para_to_omni_min": base.para_to_omni_min,
-                "energy_ratio_min": base.energy_ratio_min,
-            }
-            kwargs[param_name] = val
-            p = ClassifierParams(**kwargs)
-            r = classify_beams(features, p)
+            r = classify_beams(features, replace(base, **{param_name: val}))
             counts.append(int(r.is_beam.sum()))
         results[param_name] = {"values": values, "beam_counts": counts,
                                "base_count": int(base_count)}
+
+    # n_sigma lives in extract_features, needs re-extraction so only runs
+    # when spectra and moments are provided
+    if spectra is not None and moments is not None:
+        vals = [1.0, 1.5, 2.0, 2.5, 3.0]
+        counts = []
+        for v in vals:
+            f = extract_features(spectra, moments,
+                                 energy_cutoff_low=energy_cutoff_low,
+                                 pa_coverage_threshold=base.min_coverage,
+                                 coherent_asym_min=base.coherent_asym_min,
+                                 coherent_dir_min=base.coherent_dir_min,
+                                 coherent_min_bins=base.coherent_min_bins,
+                                 n_sigma=v,
+                                 peak_width_max=base.peak_width_max,
+                                 peak_wlen=base.peak_wlen)
+            counts.append(int(classify_beams(f, base).is_beam.sum()))
+        results["n_sigma"] = {"values": vals, "beam_counts": counts,
+                              "base_count": int(base_count)}
 
     return results
 
@@ -957,6 +1094,18 @@ def plot_spectra_snapshot(
     ax.loglog(e[valid], spectra.omni[time_idx, valid], "k-", lw=2, label="Omni")
     ax.loglog(e[valid], spectra.para[time_idx, valid], "r-", lw=1.5, label="0°–30° (para)")
     ax.loglog(e[valid], spectra.anti[time_idx, valid], "b-", lw=1.5, label="150°–180° (anti)")
+
+    # +/-1 sigma bands, shows whether a faint para/anti separation is real
+    for arr, sig, col in ((spectra.para, spectra.para_sig, "r"),
+                          (spectra.anti, spectra.anti_sig, "b")):
+        y = arr[time_idx, valid]
+        s = sig[time_idx, valid]
+        ok = np.isfinite(y) & np.isfinite(s) & (y > 0)
+        if np.any(ok):
+            # clamp lower band positive for the log axis
+            lo = np.maximum(y[ok] - s[ok], y[ok] * 1e-2)
+            ax.fill_between(e[valid][ok], lo, y[ok] + s[ok],
+                            color=col, alpha=0.15, lw=0)
 
     ax.set_xlabel("Energy [eV]")
     ax.set_ylabel("Energy Flux [eV/cm²-s-sr-eV]")
@@ -1186,7 +1335,8 @@ def write_beam_table(
 
     idxs = np.where(classification.is_beam)[0]
     cols = ["ut", "unix", "direction", "e_beam_eV", "delta_e_eV", "eb_over_de",
-            "r_beam", "pa_max_ratio", "asymmetry", "e_peak_eV", "beam_score"]
+            "r_beam", "pa_max_ratio", "sig_margin", "asymmetry", "e_peak_eV",
+            "beam_score"]
     with open(out_csv, "w", newline="") as fh:
         wr = csv.writer(fh)
         wr.writerow(cols)
@@ -1201,6 +1351,7 @@ def write_beam_table(
                 f"{features.eb_over_de[t]:.3f}",
                 f"{features.r_beam[t]:.3f}",
                 f"{features.pa_max_ratio[t]:.3f}",
+                f"{features.sig_margin[t]:.2f}",
                 f"{features.asymmetry[t]:.3f}",
                 f"{features.e_peak[t]:.1f}",
                 f"{classification.beam_score[t]:.3f}",
@@ -1284,10 +1435,10 @@ def plot_threshold_comparison(
         feat = extract_features(spectra, moments,
                                 energy_cutoff_low=energy_cutoff_low,
                                 pa_coverage_threshold=params.min_coverage,
-                                beam_flux_floor=params.beam_flux_floor,
                                 coherent_asym_min=params.coherent_asym_min,
                                 coherent_dir_min=thr,
                                 coherent_min_bins=params.coherent_min_bins,
+                                n_sigma=params.n_sigma,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
         results.append((feat, classify_beams(feat, params)))
@@ -1415,10 +1566,10 @@ def run_pipeline(
     features = extract_features(spectra, moments,
                                 energy_cutoff_low=energy_cutoff_low,
                                 pa_coverage_threshold=params.min_coverage,
-                                beam_flux_floor=params.beam_flux_floor,
                                 coherent_asym_min=params.coherent_asym_min,
                                 coherent_dir_min=params.coherent_dir_min,
                                 coherent_min_bins=params.coherent_min_bins,
+                                n_sigma=params.n_sigma,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
     n_finite = np.sum(np.isfinite(features.asymmetry))
@@ -1434,7 +1585,9 @@ def run_pipeline(
     n_smooth = smoothed.is_beam.sum()
     print(f"  Smoothed beams: {n_smooth}/{len(features.times)} timesteps")
 
-    sensitivity = threshold_sensitivity(features)
+    sensitivity = threshold_sensitivity(features, spectra=spectra, moments=moments,
+                                        energy_cutoff_low=energy_cutoff_low,
+                                        params=params)
     print(f"  Sensitivity analysis complete")
 
     if figures_dir is not None:
@@ -1444,7 +1597,7 @@ def run_pipeline(
         fig_dir = Path(figures_dir) / date_str
         fig_dir.mkdir(parents=True, exist_ok=True)
 
-        prefix = f"th{probe}_beam_{date_str}"
+        prefix = f"th{probe}_beam_{date_str}{_trange_tag(trange)}"
 
         plot_feature_timeseries(
             features, smoothed, spectra,

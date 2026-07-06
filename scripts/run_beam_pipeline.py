@@ -3,7 +3,10 @@ import argparse
 from pathlib import Path
 
 from esa_plotting.config import set_data_dir
-from esa_plotting.beam_pipeline import run_pipeline, ClassifierParams, diagnose_window
+from esa_plotting.beam_pipeline import (
+    run_pipeline, ClassifierParams, diagnose_window, apply_hours,
+    load_state_gsm, load_bfield_gsm,
+)
 
 FIGURES = Path(__file__).resolve().parents[1] / "figures"
 
@@ -12,7 +15,11 @@ def main() -> None:
     p = argparse.ArgumentParser(description="THEMIS ion beam detection pipeline")
     p.add_argument("--probe", default="a", choices=list("abcde"))
     p.add_argument("--trange", nargs=2, default=["2019-05-01", "2019-05-02"],
-                   help="Start and end times, e.g. 2019-05-01 2019-05-02")
+                   help="Start and end times, e.g. 2019-05-01 2019-05-02, "
+                        "hour syntax also works, e.g. 2019-05-01/06:00")
+    p.add_argument("--hours", nargs=2, type=int, metavar=("H_START", "H_END"),
+                   help="Hour window on the start date, e.g. 6 12; "
+                        "end rolls to next day if <= start")
     p.add_argument("--energy-cutoff", type=float, default=30.0,
                    help="Low-energy cutoff in eV (default: 30)")
     p.add_argument("--min-consecutive", type=int, default=1,
@@ -27,8 +34,8 @@ def main() -> None:
                    help="Beam score threshold (default: 0.4)")
     p.add_argument("--min-coverage", type=float, default=0.01,
                    help="Min PA cone solid-angle coverage (default: 0.01)")
-    p.add_argument("--beam-flux-floor", type=float, default=0.1,
-                   help="Min omni flux as frac of peak for asym scan (default: 0.1)")
+    p.add_argument("--n-sigma", type=float, default=2.0,
+                   help="Poisson significance for coherent bins (default: 2.0)")
     p.add_argument("--coherent-asym-min", type=float, default=0.2,
                    help="Per-bin |asym| threshold for coherent run (default: 0.2)")
     p.add_argument("--coherent-dir-min", type=float, default=1.2,
@@ -43,10 +50,12 @@ def main() -> None:
                    default=[1.0, 1.2, 1.5, 2.0],
                    help="R (coherent_dir_min) values for the threshold-comparison plot")
     p.add_argument("--no-plots", action="store_true")
-    p.add_argument("--diagnose", nargs=2, metavar=("UT_START", "UT_END"),
-                   help="Dump per-bin spectra and features for UT window, e.g. 06:00 07:00")
+    p.add_argument("--diagnose", nargs="*", metavar="UT",
+                   help="Dump per-bin spectra and features. Give a UT window, "
+                        "e.g. 06:00 07:00, or no args to use the --hours/trange window")
     args = p.parse_args()
 
+    trange = apply_hours(args.trange, args.hours)
     data_dir = set_data_dir()
 
     params = ClassifierParams(
@@ -55,7 +64,7 @@ def main() -> None:
         para_to_omni_min=args.p2o_threshold,
         score_threshold=args.score_threshold,
         min_coverage=args.min_coverage,
-        beam_flux_floor=args.beam_flux_floor,
+        n_sigma=args.n_sigma,
         coherent_asym_min=args.coherent_asym_min,
         coherent_dir_min=args.coherent_dir_min,
         coherent_min_bins=args.coherent_min_bins,
@@ -65,7 +74,7 @@ def main() -> None:
 
     result = run_pipeline(
         probe=args.probe,
-        trange=args.trange,
+        trange=trange,
         data_dir=data_dir,
         params=params,
         min_consecutive=args.min_consecutive,
@@ -80,15 +89,34 @@ def main() -> None:
     print(f"Total timesteps: {n}")
     print(f"Beam timesteps (smoothed): {n_beam} ({100*n_beam/max(n,1):.1f}%)")
 
-    if args.diagnose:
+    if args.diagnose is not None:
+        if len(args.diagnose) == 2:
+            ut0, ut1 = args.diagnose
+        elif len(args.diagnose) == 0:
+            # no args, inherit the hour window, full day if none
+            ut0 = trange[0].split("/")[1] if "/" in trange[0] else "00:00"
+            ut1 = trange[1].split("/")[1] if "/" in trange[1] else "23:59:59"
+        else:
+            p.error("--diagnose takes 0 or 2 args")
         # dated diagnose file in the same per-day folder as the figures
-        date_str = args.trange[0].split("/")[0]
+        date_str = trange[0].split("/")[0]
         diag_dir = FIGURES / date_str
         diag_dir.mkdir(parents=True, exist_ok=True)
-        diag_path = diag_dir / f"th{args.probe}_beam_{date_str}_diagnose.txt"
+        # hour tag keeps sub-day windows from clobbering each other
+        tag = "-".join(s.split("/")[1].replace(":", "") for s in trange if "/" in s)
+        tag = f"_{tag}" if tag else ""
+        diag_path = diag_dir / f"th{args.probe}_beam_{date_str}{tag}_diagnose.txt"
+        # gsm position and b-field for context, skip if load fails
+        pos_gsm = b_gsm = None
+        try:
+            pos_gsm = load_state_gsm(args.probe, trange, data_dir)
+            b_gsm = load_bfield_gsm(args.probe, trange, data_dir)
+        except Exception as e:
+            print(f"[diag] gsm context unavailable: {e}")
         diagnose_window(result.spectra, result.features, result.classification,
-                        params, args.diagnose[0], args.diagnose[1],
-                        out_path=str(diag_path))
+                        params, ut0, ut1,
+                        out_path=str(diag_path),
+                        pos_gsm=pos_gsm, b_gsm=b_gsm)
 
     print(f"\n=== Threshold Sensitivity ===")
     for param, info in result.sensitivity.items():

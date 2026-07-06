@@ -50,7 +50,7 @@ The four spectra:
 
 A beam is a narrow, directional population, it lights up in one PA gate but not the other. Plasma sheet ions are roughly isotropic, so all curves overlap. Comparing parallel and anti-parallel spectra surfaces the directional asymmetry that defines a beam.
 
-`compute_pa_spectra()`: for each timestep, interpolates the magnetic field to the distribution time, computes pitch angles for every angle bin, then sorts flux into omni / para / anti / perp energy spectra. It also propagates the per-bin one-count level through the same solid-angle weighting as the perp cone to get the perpendicular noise floor (`perp_floor`). `_compute_pitch_angles()` does the geometry by converting instrument look directions to particle velocities (opposite direction), then dotting with the B-field unit vector.
+`compute_pa_spectra()`: for each timestep, interpolates the magnetic field to the distribution time, computes pitch angles for every angle bin, then sorts flux into omni / para / anti / perp energy spectra. It also propagates the per-bin one-count level through the same solid-angle weighting as the perp cone to get the perpendicular noise floor (`perp_floor`), and propagates Poisson counting uncertainty (`var(flux) = onecount * flux` per bin) into per-cone sigmas (`para_sig` / `anti_sig` / `perp_sig`) used by the significance gates below. `_compute_pitch_angles()` does the geometry by converting instrument look directions to particle velocities (opposite direction), then dotting with the B-field unit vector.
 
 ### Phase 2 - Feature extraction (`extract_features()`)
 
@@ -66,7 +66,7 @@ Spectral + moment features:
 
 Coherent-run + spectral-line features:
 
-- `coherent_ok` - bool, a real coherent directional run was found (both cones sampled, enough adjacent bins where `|asym|` and **R** clear their per-bin thresholds). **R = dominant cone / perpendicular cone**, not dominant/omni: omni includes the beam cone so it dilutes the enhancement, while the perp cone is a clean background a field-aligned beam depletes. The perp denominator is clamped at its one-count noise floor so a depleted perp can't blow R up; where perp is unsampled R is undefined and the bin drops out. (Distinct from `para_to_omni`, which stays omni-based and only feeds the score.)
+- `coherent_ok` - bool, a real coherent directional run was found (both cones sampled, enough adjacent bins where `|asym|` and **R** clear their per-bin thresholds AND both are statistically significant: `|para - anti| >= n_sigma * sigma` and `dominant - perp >= n_sigma * sigma`, with sigmas from Poisson counting statistics; default `n_sigma=2.0`). The old omni flux floor (`beam_flux_floor`) was removed — the significance gates do its job without blocking faint beams far from the spectrum peak. **R = dominant cone / perpendicular cone**, not dominant/omni: omni includes the beam cone so it dilutes the enhancement, while the perp cone is a clean background a field-aligned beam depletes. The perp denominator is clamped at its one-count noise floor so a depleted perp can't blow R up; where perp is unsampled R is undefined and the bin drops out. (Distinct from `para_to_omni`, which stays omni-based and only feeds the score.)
 - `perp_depleted` - bool, the coherent run leaned on a perp clamped at its one-count floor (perp genuinely at noise). Tracked for calibration across intervals, not gated.
 - `peak_prom` - log10 prominence of the narrow spectral line found inside the coherent run (0.3 = 2x above local baseline)
 - `peak_width` - FWHM of that line in bins
@@ -75,6 +75,7 @@ Coherent-run + spectral-line features:
 - `eb_over_de` - `e_line / ΔE` = E_beam/ΔE. Beam monochromaticity; logged only, not gated, pending calibration of its distribution across confirmed beams vs non-beams.
 - `r_beam` - flux-weighted mean R over the coherent-run bins (the per-beam directional enhancement, one scalar per timestep)
 - `pa_max_ratio` - `max(para) / max(anti)` over the run bins, reported dominant/sub (>= 1). Magnitude of flux transfer between the field-aligned and anti-aligned directions at the beam.
+- `sig_margin` - weakest `|para - anti| / sigma` over the run bins, one scalar per beam. Logged only, for calibrating `n_sigma` across confirmed beams vs marginal flags.
 
 Spectral-line detection is local to the coherent run, not global. It scans only the dominant cone (para if `asymmetry >= 0`, else anti), compresses to finite/positive bins, takes `log10(flux)`, and runs `scipy.signal.find_peaks` with a bounded prominence window (`peak_wlen=5`) and a width cap (`peak_width_max=4.0` bins). A peak only counts if it sits inside the directional run band (±1 bin slop). The idea: a beam = the directional region is also a narrow line; a prominent line elsewhere (e.g. the anti-parallel plasma-sheet peak) is rejected.
 
@@ -104,7 +105,7 @@ Beam direction is tagged (+1 parallel, -1 anti-parallel) from the asymmetry sign
 
 Per-beam outputs (one record per flagged timestep, written when plotting is on):
 
-- `write_beam_table()` - `<prefix>_beams.csv`, one row per flagged timestep: UT, direction, `e_beam`(=e_line), `delta_e`, `eb_over_de`, `r_beam`, `pa_max_ratio`, asymmetry, `e_peak`, beam score. The raw table behind the histograms; also lets you pool beams across dates.
+- `write_beam_table()` - `<prefix>_beams.csv`, one row per flagged timestep: UT, direction, `e_beam`(=e_line), `delta_e`, `eb_over_de`, `r_beam`, `pa_max_ratio`, `sig_margin`, asymmetry, `e_peak`, beam score. The raw table behind the histograms; also lets you pool beams across dates.
 - `plot_beam_histograms()` - `<prefix>_histograms.png`, 4 panels: R, E_beam, ΔE, and E_beam/ΔE over the flagged timesteps (E_beam and ΔE on log bins). For studying the distributions before setting any new threshold.
 - `plot_threshold_comparison()` - `<prefix>_threshold_compare.png`, small multiples: one omni spectrogram per `coherent_dir_min` (R) value (default 1.0/1.2/1.5/2.0, set via `--threshold-compare-values`), beam dots overlaid at the omni flux peak (`e_peak`, red para / blue anti). Re-runs `extract_features` per value since the R gate lives there. Note count vs R isn't strictly monotonic: tightening R reselects the coherent run and shifts the line-search band, so the peak-prominence gate can flip a timestep on or off by ±1.
 
@@ -119,7 +120,8 @@ Per-beam outputs (one record per flagged timestep, written when plotting is on):
 Command flags:
         Flag	Type	Default	Description
         --probe	choice a-e	a	THEMIS probe
-        --trange	2 args	2019-05-01 2019-05-02	start/end times
+        --trange	2 args	2019-05-01 2019-05-02	start/end times, hour syntax ok (2019-05-01/06:00)
+        --hours	2 ints	none	hour window on start date, e.g. 6 12, end rolls to next day if <= start
         --energy-cutoff	float	30.0	low-energy cutoff (eV)
         --min-consecutive	int	1	min consecutive beam steps to keep
         --asym-threshold	float	0.2	asymmetry threshold
@@ -127,7 +129,7 @@ Command flags:
         --p2o-threshold	float	1.3	para-to-omni ratio threshold
         --score-threshold	float	0.4	beam score threshold
         --min-coverage	float	0.01	min PA cone solid-angle coverage
-        --beam-flux-floor	float	0.1	min omni flux frac of peak for asym scan
+        --n-sigma	float	2.0	poisson significance for coherent bins
         --coherent-asym-min	float	0.2	per-bin |asym| threshold for coherent run
         --coherent-dir-min	float	1.2	per-bin dominant-cone/perp (R) threshold
         --coherent-min-bins	int	2	min adjacent bins for coherent beam
@@ -135,7 +137,7 @@ Command flags:
         --peak-width-max	float	4.0	max line FWHM in bins
         --threshold-compare-values	floats	1.0 1.2 1.5 2.0	R values for the threshold-comparison plot
         --no-plots	flag	off	skip plotting
-        --diagnose	2 args	none	dump per-bin spectra/features for UT window, e.g. 06:00 07:00
+        --diagnose	0 or 2 args	none	dump per-bin spectra/features, UT window e.g. 06:00 07:00, no args = use --hours/trange window
 
 ## Tests
 
