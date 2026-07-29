@@ -1,4 +1,4 @@
-# ion beam detection pipeline for themis esa data
+﻿# ion beam detection pipeline for themis esa data
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from pyspedas.projects import themis
 from scipy.interpolate import interp1d
 from scipy.signal import find_peaks
 
-
 def apply_hours(trange: list[str], hours: list[int] | None) -> list[str]:
     # hour window on the start date, end rolls past midnight if h1 <= h0
     if hours is None:
@@ -26,12 +25,10 @@ def apply_hours(trange: list[str], hours: list[int] | None) -> list[str]:
         d1 = (datetime.strptime(d0, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
     return [f"{d0}/{h0:02d}:00", f"{d1}/{h1:02d}:00"]
 
-
 def _trange_tag(trange: list[str]) -> str:
     # hour-window suffix so sub-day runs dont clobber full-day outputs
     tags = [s.split("/")[1].replace(":", "") for s in trange if "/" in s]
     return "_" + "-".join(tags) if tags else ""
-
 
 @dataclass
 class ESDDistribution:
@@ -47,7 +44,6 @@ class ESDDistribution:
     en_ind: np.ndarray         # (ntime,) energy mode idx per timestep
     an_ind: np.ndarray         # (ntime,) angle mode idx per timestep
     onecount: np.ndarray       # (ntime, 32, 176) one-count eflux level per bin
-
 
 def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDistribution:
     # reads cdf directly bc pyspedas doesnt expose angle/energy lookup tables
@@ -169,7 +165,6 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
         en_ind=en_ind, an_ind=an_ind, onecount=onecount,
     )
 
-
 def load_bfield_dsl(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
     # returns (times, b_dsl) where b_dsl is (n,3)
     import os
@@ -187,7 +182,6 @@ def load_bfield_dsl(probe: str, trange: list[str], data_dir: str) -> tuple[np.nd
         raise ValueError(f"No FGM DSL data found for probe {probe}")
     return d.times, d.y
 
-
 def load_bfield_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
     # returns (times, b_gsm) in nT, diagnose context only
     import os
@@ -199,7 +193,6 @@ def load_bfield_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.nd
             return d.times, d.y
     raise ValueError(f"No FGM GSM data found for probe {probe}")
 
-
 def load_state_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
     # returns (times, pos_gsm) in earth radii, diagnose context only
     import os
@@ -210,7 +203,6 @@ def load_state_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.nda
     if d is None:
         raise ValueError(f"No state GSM position found for probe {probe}")
     return d.times, d.y / 6371.2
-
 
 def load_moments(probe: str, trange: list[str], data_dir: str) -> dict:
     import os
@@ -259,22 +251,25 @@ class PitchAngleSpectra:
     pa_coverage_para: np.ndarray  # (ntime,) frac of solid angle in para cone
     pa_coverage_anti: np.ndarray  # (ntime,) frac of solid angle in anti cone
     pa_coverage_perp: np.ndarray  # (ntime,) frac of solid angle in perp cone
+    # one-count floors for the field-aligned cones, a sampled-but-empty cone
+    # is a measurement (flux below one count) not a gap, nan poisons the asym
+    para_floor: np.ndarray | None = None  # (ntime, nenergy)
+    anti_floor: np.ndarray | None = None  # (ntime, nenergy)
 
 def _compute_pitch_angles(theta_inst: np.ndarray, phi_inst: np.ndarray,
                           b_dsl: np.ndarray, phi_offset: float) -> np.ndarray:
-    # pa btwn particle vel and b, vel is opposite to look dir
+    # pa btwn particle vel and b
     theta_rad = np.deg2rad(theta_inst)
     # phi_offset corrects spin phase from inst frame to dsl
     phi_rad = np.deg2rad(phi_inst + phi_offset)
 
     # sphere to cartesian, theta is elevation so cos goes on x/y
     # need vector form to dot with b-field below
-    look_x = np.cos(theta_rad) * np.cos(phi_rad)
-    look_y = np.cos(theta_rad) * np.sin(phi_rad)
-    look_z = np.sin(theta_rad)
-
-    # detector sees particles coming in, so v = -look
-    vx, vy, vz = -look_x, -look_y, -look_z
+    # cdf theta/phi already give particle travel direction, verified against
+    # l2 velocity moments (2015-12-20 lobe, median 176 deg with a -look flip)
+    vx = np.cos(theta_rad) * np.cos(phi_rad)
+    vy = np.cos(theta_rad) * np.sin(phi_rad)
+    vz = np.sin(theta_rad)
 
     b_mag = np.linalg.norm(b_dsl)
     # skip when b is too small, pa is undefined
@@ -299,7 +294,6 @@ def _cone_sigma(f: np.ndarray, dw: np.ndarray, oc: np.ndarray, w_sum: float) -> 
     fv = np.maximum(f[fin], oc[fin])
     return float(np.sqrt(np.sum(dw[fin] ** 2 * oc[fin] * fv)) / w_sum)
 
-
 def compute_pa_spectra(
     dist: ESDDistribution,
     b_times: np.ndarray,
@@ -321,6 +315,8 @@ def compute_pa_spectra(
     anti = np.full((ntime, nenergy), np.nan)
     perp = np.full((ntime, nenergy), np.nan)
     perp_floor = np.full((ntime, nenergy), np.nan)
+    para_floor = np.full((ntime, nenergy), np.nan)
+    anti_floor = np.full((ntime, nenergy), np.nan)
     para_sig = np.full((ntime, nenergy), np.nan)
     anti_sig = np.full((ntime, nenergy), np.nan)
     perp_sig = np.full((ntime, nenergy), np.nan)
@@ -365,37 +361,55 @@ def compute_pa_spectra(
             if total_weight > 0:
                 omni[t, e] = np.sum(f[good] * dw[good]) / total_weight
 
+            # cone membership from pointing alone, a sampled cone with zero
+            # counts is an empty measurement, its floor is the one-count level
+            sampled = ~nan_mask
+            # coverage denominator = all sampled solid angle, not just lit pixels
+            w_sampled = dw[sampled].sum()
+
+            def cone_floor(in_cone):
+                occ, dwc = oc[in_cone], dw[in_cone]
+                ocfin = np.isfinite(occ) & (occ > 0)
+                if np.any(ocfin):
+                    return np.sum(occ[ocfin] * dwc[ocfin]) / dwc[ocfin].sum()
+                return np.nan
+
             # gate by pa range then weighted avg over the cone only
             # isolates the directional pop we care about
-            in_para = good & (pa >= para_range[0]) & (pa <= para_range[1])
+            cone_para = sampled & (pa >= para_range[0]) & (pa <= para_range[1])
+            in_para = cone_para & good
+            if np.any(cone_para):
+                para_floor[t, e] = cone_floor(cone_para)
+                # coverage = frac of solid angle the cone sampled, empty counts
+                # low coverage means the avg is unreliable, drop it downstream
+                cov_para[t] = max(cov_para[t], dw[cone_para].sum() / w_sampled)
             if np.any(in_para):
                 w_para = dw[in_para].sum()
                 para[t, e] = np.sum(f[in_para] * dw[in_para]) / w_para
                 para_sig[t, e] = _cone_sigma(f[in_para], dw[in_para], oc[in_para], w_para)
-                # coverage = frac of solid angle inside the cone
-                # low coverage means the avg is unreliable, drop it downstream
-                cov_para[t] = max(cov_para[t], w_para / total_weight)
 
-            in_anti = good & (pa >= anti_range[0]) & (pa <= anti_range[1])
+            cone_anti = sampled & (pa >= anti_range[0]) & (pa <= anti_range[1])
+            in_anti = cone_anti & good
+            if np.any(cone_anti):
+                anti_floor[t, e] = cone_floor(cone_anti)
+                cov_anti[t] = max(cov_anti[t], dw[cone_anti].sum() / w_sampled)
             if np.any(in_anti):
                 w_anti = dw[in_anti].sum()
                 anti[t, e] = np.sum(f[in_anti] * dw[in_anti]) / w_anti
                 anti_sig[t, e] = _cone_sigma(f[in_anti], dw[in_anti], oc[in_anti], w_anti)
-                cov_anti[t] = max(cov_anti[t], w_anti / total_weight)
 
             # perp cone is the clean background for R, beam depletes it not enhances
-            in_perp = good & (pa >= perp_range[0]) & (pa <= perp_range[1])
+            cone_perp = sampled & (pa >= perp_range[0]) & (pa <= perp_range[1])
+            in_perp = cone_perp & good
+            if np.any(cone_perp):
+                # one-count noise floor through the same solid-angle weighting,
+                # only over bins with a finite one-count level so nan cant poison it
+                perp_floor[t, e] = cone_floor(cone_perp)
+                cov_perp[t] = max(cov_perp[t], dw[cone_perp].sum() / w_sampled)
             if np.any(in_perp):
                 w_perp = dw[in_perp].sum()
                 perp[t, e] = np.sum(f[in_perp] * dw[in_perp]) / w_perp
                 perp_sig[t, e] = _cone_sigma(f[in_perp], dw[in_perp], oc[in_perp], w_perp)
-                # one-count noise floor through the same solid-angle weighting,
-                # only over bins with a finite one-count level so nan cant poison it
-                ocp, dwp = oc[in_perp], dw[in_perp]
-                ocfin = np.isfinite(ocp) & (ocp > 0)
-                if np.any(ocfin):
-                    perp_floor[t, e] = np.sum(ocp[ocfin] * dwp[ocfin]) / dwp[ocfin].sum()
-                cov_perp[t] = max(cov_perp[t], w_perp / total_weight)
 
     return PitchAngleSpectra(
         times=dist.times,
@@ -411,8 +425,9 @@ def compute_pa_spectra(
         pa_coverage_para=cov_para,
         pa_coverage_anti=cov_anti,
         pa_coverage_perp=cov_perp,
+        para_floor=para_floor,
+        anti_floor=anti_floor,
     )
-
 
 @dataclass
 class FeatureTable:
@@ -432,8 +447,17 @@ class FeatureTable:
     r_beam: np.ndarray           # flux-weighted mean R (dominant cone / perp) over the run
     pa_max_ratio: np.ndarray     # max para / max anti over run bins, dominant/sub, flux transfer
     sig_margin: np.ndarray       # min |para-anti|/sigma over run bins, poisson confidence
+    asym_baseline: np.ndarray    # rolling median asym over run band, logged only
+    asym_dev: np.ndarray         # asymmetry minus baseline, logged only
+    flux_z: np.ndarray           # dominant-cone flux vs rolling median/MAD, logged only
+    flux_z_perp: np.ndarray      # same z for the perp cone, beam vs compression, logged only
+    duration: np.ndarray         # chain length of adjacent same-band candidates, steps
+    chain_e_slope: np.ndarray    # d log10(E) per step along the chain, tof dispersion
+    chain_e_scatter: np.ndarray  # rms log10(E) residual of the chain fit, drift coherence
     coherent_ok: np.ndarray      # bool, a real coherent directional run was found
+    hyst_promoted: np.ndarray    # bool, accepted at lo bar via a same-band neighbor
     perp_depleted: np.ndarray    # bool, run had sub-floor perp flux so R denom was clamped
+    cone_floored: np.ndarray     # bool, run used an empty para/anti cone at its one-count floor
     pa_ok_both: np.ndarray       # bool, both cones sampled, asym is trustworthy
     pa_ok_para: np.ndarray       # bool, para cone sampled, p2o is trustworthy
 
@@ -441,6 +465,33 @@ class FeatureTable:
 PROTON_MASS_KG = 1.6726219e-27
 EV_PER_JOULE = 6.242e18
 BOLTZMANN_EV = 8.617e-5
+
+
+def _best_signed_run(qual, signs, max_gap=1):
+    # longest run of same-sign qualifying bins, allow gap of max_gap non-qual bins
+    # gap tolerance catches beams whose qualifying bins are interrupted by
+    # a single nan or a bin that just barely misses a gate
+    best, cur, cur_sign, gap = [], [], 0, 0
+    for k in range(len(qual)):
+        if qual[k] and signs[k] != 0:
+            if cur_sign == 0 or signs[k] == cur_sign:
+                cur.append(k)
+                cur_sign = signs[k]
+                gap = 0
+            else:
+                if len(cur) > len(best):
+                    best = cur
+                cur, cur_sign, gap = [k], signs[k], 0
+        else:
+            if cur:
+                gap += 1
+                if gap > max_gap:
+                    if len(cur) > len(best):
+                        best = cur
+                    cur, cur_sign, gap = [], 0, 0
+    if len(cur) > len(best):
+        best = cur
+    return best
 
 
 def extract_features(
@@ -451,9 +502,14 @@ def extract_features(
     coherent_asym_min: float = 0.2,
     coherent_dir_min: float = 1.2,
     coherent_min_bins: int = 2,
-    n_sigma: float = 2.0,
+    n_sigma_lo: float = 1.5,
+    n_sigma_hi: float = 2.5,
+    pair_e_max: float = 7000.0,
     peak_width_max: float = 4.0,
     peak_wlen: int = 5,
+    asym_baseline_window: float = 10800.0,
+    flux_baseline_window: float = 21600.0,
+    baseline_mask: np.ndarray | None = None,
 ) -> FeatureTable:
     ntime = len(spectra.times)
     energy = spectra.energy
@@ -475,10 +531,27 @@ def extract_features(
     r_beam = np.full(ntime, np.nan)
     pa_max_ratio = np.full(ntime, np.nan)
     sig_margin = np.full(ntime, np.nan)
+    asym_baseline = np.full(ntime, np.nan)
+    asym_dev = np.full(ntime, np.nan)
+    flux_z = np.full(ntime, np.nan)
+    flux_z_perp = np.full(ntime, np.nan)
+    duration = np.full(ntime, np.nan)
+    chain_e_slope = np.full(ntime, np.nan)
+    chain_e_scatter = np.full(ntime, np.nan)
     coherent_ok = np.zeros(ntime, dtype=bool)
+    hyst_promoted = np.zeros(ntime, dtype=bool)
     perp_depleted = np.zeros(ntime, dtype=bool)
+    cone_floored = np.zeros(ntime, dtype=bool)
     pa_ok_both = np.zeros(ntime, dtype=bool)
     pa_ok_para = np.zeros(ntime, dtype=bool)
+
+    # per-bin asym and floored cone flux for every timestep, feed the baselines
+    asym_mat = np.full((ntime, len(e_valid)), np.nan)
+    para_mat = np.full((ntime, len(e_valid)), np.nan)
+    anti_mat = np.full((ntime, len(e_valid)), np.nan)
+    perp_mat = np.full((ntime, len(e_valid)), np.nan)
+    # lo-bar candidate runs, acceptance decided in the hysteresis pass below
+    cands: dict[int, dict] = {}
 
     if "velocity" in moments and "temperature" in moments:
         vel_interp = interp1d(moments["velocity_times"], moments["velocity"],
@@ -499,6 +572,32 @@ def extract_features(
         para_sig_t = spectra.para_sig[t, valid_e]
         anti_sig_t = spectra.anti_sig[t, valid_e]
         perp_sig_t = spectra.perp_sig[t, valid_e]
+
+        # sampled-but-empty cones read as their one-count upper limit, nan there
+        # poisons asym for exactly the most one-sided (strongest beam) bins
+        # sigma for an empty cone is the one-count level itself
+        if spectra.para_floor is not None:
+            pfl = spectra.para_floor[t, valid_e]
+            para_empty = ~np.isfinite(para_t) & np.isfinite(pfl)
+            para_t = np.where(para_empty, pfl, para_t)
+            para_sig_t = np.where(para_empty, pfl, para_sig_t)
+        else:
+            para_empty = np.zeros(len(para_t), dtype=bool)
+        if spectra.anti_floor is not None:
+            afl = spectra.anti_floor[t, valid_e]
+            anti_empty = ~np.isfinite(anti_t) & np.isfinite(afl)
+            anti_t = np.where(anti_empty, afl, anti_t)
+            anti_sig_t = np.where(anti_empty, afl, anti_sig_t)
+        else:
+            anti_empty = np.zeros(len(anti_t), dtype=bool)
+        # empty perp is the deepest depletion, floor it instead of dropping the bin
+        perp_empty = ~np.isfinite(perp_t) & np.isfinite(perp_floor_t)
+        perp_t = np.where(perp_empty, perp_floor_t, perp_t)
+        perp_sig_t = np.where(perp_empty, perp_floor_t, perp_sig_t)
+
+        para_mat[t] = para_t
+        anti_mat[t] = anti_t
+        perp_mat[t] = perp_t
 
         # per-feature coverage: asym needs both cones, p2o only needs para
         para_ok = spectra.pa_coverage_para[t] >= pa_coverage_threshold
@@ -546,7 +645,7 @@ def extract_features(
         # clean background since a field-aligned beam depletes the perpendicular cone
         # clamp perp at its own one-count noise floor, not the omni peak, so a depleted
         # perp cant blow R up and perp_depleted stays comparable across intervals
-        perp_subfloor = np.isfinite(perp_t) & (perp_t < perp_floor_t)
+        perp_subfloor = (np.isfinite(perp_t) & (perp_t < perp_floor_t)) | perp_empty
         with np.errstate(invalid="ignore", divide="ignore"):
             perp_eff = np.where(np.isfinite(perp_t),
                                 np.maximum(perp_t, perp_floor_t), np.nan)
@@ -567,143 +666,61 @@ def extract_features(
                             np.where(np.isfinite(asym_bins), anti_t, np.nan))
         dom_sig = np.where(np.isfinite(asym_bins) & (asym_bins >= 0), para_sig_t,
                            np.where(np.isfinite(asym_bins), anti_sig_t, np.nan))
-        with np.errstate(invalid="ignore"):
+        with np.errstate(invalid="ignore", divide="ignore"):
             sig_d = np.sqrt(para_sig_t ** 2 + anti_sig_t ** 2)
-            # para/anti difference must beat the joint counting noise
-            asym_signif = np.abs(para_t - anti_t) >= n_sigma * sig_d
-            # dominant cone must sit above perp by more than the joint noise
-            r_signif = ((dom_flux - perp_eff) >=
-                        n_sigma * np.sqrt(dom_sig ** 2 + perp_sig_t ** 2))
+            # para/anti difference vs the joint counting noise, in sigmas
+            asym_marg = np.where(sig_d > 0,
+                                 np.abs(para_t - anti_t) / sig_d, np.nan)
+            # dominant cone above perp vs the joint noise, in sigmas
+            r_noise = np.sqrt(dom_sig ** 2 + perp_sig_t ** 2)
+            r_marg = np.where(r_noise > 0,
+                              (dom_flux - perp_eff) / r_noise, np.nan)
 
         # a bin qualifies if asym magnitude and R clear their ratio gates
-        # and both are statistically significant
+        # and both sigma margins clear the given bar
+        # two bars: runs form at lo, acceptance decided in the hysteresis pass,
+        # isolated detections need hi, lo neighbors vouch for each other
         with np.errstate(invalid="ignore"):
-            qual = (np.isfinite(asym_bins) &
-                    np.isfinite(dir_enhanced) &
-                    (np.abs(asym_bins) >= coherent_asym_min) &
-                    (dir_enhanced >= coherent_dir_min) &
-                    asym_signif & r_signif)
+            qual_base = (np.isfinite(asym_bins) &
+                         np.isfinite(dir_enhanced) &
+                         (np.abs(asym_bins) >= coherent_asym_min) &
+                         (dir_enhanced >= coherent_dir_min))
+            qual_lo = qual_base & (asym_marg >= n_sigma_lo) & (r_marg >= n_sigma_lo)
+            qual_hi = qual_base & (asym_marg >= n_sigma_hi) & (r_marg >= n_sigma_hi)
 
-        # find longest run of same-sign qualifying bins, allow gap of 1 non-qual bin
-        # gap tolerance catches beams whose qualifying bins are interrupted by
-        # a single nan or a bin that just barely misses the dir/asym gate
-        n = len(asym_bins)
+        asym_mat[t] = asym_bins
+
         signs = np.where(asym_bins > 0, 1,
                          np.where(asym_bins < 0, -1, 0)).astype(int)
-        best_idxs = []   # qualifying bin indices in the best run
-        cur_idxs = []
-        cur_sign = 0
-        gap = 0
-        max_gap = 1
-        for k in range(n):
-            if qual[k] and signs[k] != 0:
-                if cur_sign == 0 or signs[k] == cur_sign:
-                    cur_idxs.append(k)
-                    cur_sign = signs[k]
-                    gap = 0
-                else:
-                    # opposite sign, close current run and start fresh
-                    if len(cur_idxs) > len(best_idxs):
-                        best_idxs = cur_idxs
-                    cur_idxs = [k]
-                    cur_sign = signs[k]
-                    gap = 0
-            else:
-                # non-qualifying bin, extend gap if a run is active
-                if cur_idxs:
-                    gap += 1
-                    if gap > max_gap:
-                        if len(cur_idxs) > len(best_idxs):
-                            best_idxs = cur_idxs
-                        cur_idxs = []
-                        cur_sign = 0
-                        gap = 0
-        if len(cur_idxs) > len(best_idxs):
-            best_idxs = cur_idxs
+        best_idxs = _best_signed_run(qual_lo, signs)
 
         if pa_ok_both[t] and len(best_idxs) >= coherent_min_bins:
-            coherent_ok[t] = True
-            # flux-weighted avg over only the qualifying bins in the run
-            # gaps are excluded so their non-beam contribution doesnt pollute the avg
-            idx_arr = np.array(best_idxs)
-            # flag if any run bin leaned on a clamped (depleted) perp denominator
-            perp_depleted[t] = bool(np.any(perp_subfloor[idx_arr]))
-            w = omni_finite[idx_arr]
-            w_sum = w.sum()
-            asymmetry[t] = np.sum(asym_bins[idx_arr] * w) / w_sum
-            e_beam[t] = np.sum(e_valid[idx_arr] * w) / w_sum
-            # flux-weighted mean R over the run, per-beam directional enhancement
-            r_beam[t] = np.sum(dir_enhanced[idx_arr] * w) / w_sum
-            # weakest para/anti significance in the run, logged for n_sigma calibration
-            with np.errstate(invalid="ignore", divide="ignore"):
-                marg = np.abs(para_t[idx_arr] - anti_t[idx_arr]) / sig_d[idx_arr]
-            if np.any(np.isfinite(marg)):
-                sig_margin[t] = float(np.nanmin(marg))
-            # max para vs max anti within the beam band, dominant/sub = flux transfer
-            run_para = para_t[idx_arr]
-            run_anti = anti_t[idx_arr]
-            mp = np.nanmax(run_para) if np.any(np.isfinite(run_para)) else np.nan
-            ma = np.nanmax(run_anti) if np.any(np.isfinite(run_anti)) else np.nan
-            if np.isfinite(mp) and np.isfinite(ma) and mp > 0 and ma > 0:
-                pa_max_ratio[t] = max(mp, ma) / min(mp, ma)
-            if pa_ok_para[t]:
-                p2o_vals = p2o_bins[idx_arr]
-                p2o_ok = np.isfinite(p2o_vals)
-                if np.any(p2o_ok):
-                    w_p = w[p2o_ok]
-                    para_to_omni[t] = np.sum(p2o_vals[p2o_ok] * w_p) / w_p.sum()
-        else:
-            # fallback to peak +/-2 window when no coherent run found
-            lo = max(0, idx_peak - 2)
-            hi = min(len(e_valid), idx_peak + 3)
-            f_para = np.nanmean(para_t[lo:hi])
-            f_anti = np.nanmean(anti_t[lo:hi])
-            f_omni = np.nanmean(omni_finite[lo:hi])
-            if pa_ok_both[t] and np.isfinite(f_para) and np.isfinite(f_anti) and (f_para + f_anti) > 0:
-                asymmetry[t] = (f_para - f_anti) / (f_para + f_anti)
-                e_beam[t] = e_peak[t]
-            if pa_ok_para[t] and np.isfinite(f_para) and f_omni > 0:
-                para_to_omni[t] = f_para / f_omni
+            # hi run found separately so a strong core flanked by lo-only bins
+            # still counts as standing alone
+            hi_idxs = _best_signed_run(qual_hi, signs)
+            run_sign = signs[best_idxs[0]]
+            hi_ok = (len(hi_idxs) >= coherent_min_bins and
+                     signs[hi_idxs[0]] == run_sign)
+            cands[t] = dict(idxs=np.array(best_idxs), sign=run_sign, hi_ok=hi_ok,
+                            asym_bins=asym_bins, dir_enhanced=dir_enhanced,
+                            omni=omni_finite, para=para_t, anti=anti_t,
+                            sig_d=sig_d, p2o=p2o_bins,
+                            dom_sig=para_sig_t if run_sign > 0 else anti_sig_t,
+                            perp=perp_t, perp_sig=perp_sig_t,
+                            perp_subfloor=perp_subfloor,
+                            cone_empty=para_empty | anti_empty)
 
-        # spectral line detection, local to the coherent run not global
-        # a beam = the directional region is ALSO a narrow line, so we only
-        # look in the dominant cone within the run band, a prominent line
-        # elsewhere (eg the anti plasma sheet peak) is not the beam
-        if coherent_ok[t]:
-            # dominant cone is the one the run points at
-            cone = para_t if asymmetry[t] >= 0 else anti_t
-            fin = np.isfinite(cone) & (cone > 0)
-            if fin.sum() >= 3:
-                # compress to finite bins, log flux so prominence = brightness ratio
-                idx_map = np.where(fin)[0]
-                logf = np.log10(cone[fin])
-                # wlen bounds the prominence window so a narrow line on a broad
-                # pedestal gets a local prominence and width, not inflated by far valleys
-                pks, props = find_peaks(logf, prominence=0.05, wlen=peak_wlen,
-                                        width=(None, peak_width_max))
-                # run band in valid_e index space, allow 1 bin of slop
-                lo_b = min(best_idxs) - 1
-                hi_b = max(best_idxs) + 1
-                # energies on the compressed axis, for converting fwhm bins to ev
-                e_comp = e_valid[idx_map]
-                comp_x = np.arange(len(e_comp))
-                for j, pk in enumerate(pks):
-                    b = idx_map[pk]
-                    # line must sit inside the directional run to count
-                    if b < lo_b or b > hi_b:
-                        continue
-                    prom = props["prominences"][j]
-                    if not np.isfinite(peak_prom[t]) or prom > peak_prom[t]:
-                        peak_prom[t] = prom
-                        peak_width[t] = props["widths"][j]
-                        e_line[t] = e_valid[b]
-                        # de = line fwhm in ev from the half-max crossings,
-                        # eb/de is how monoenergetic the beam line is
-                        e_left = np.interp(props["left_ips"][j], comp_x, e_comp)
-                        e_right = np.interp(props["right_ips"][j], comp_x, e_comp)
-                        de = abs(e_right - e_left)
-                        de_line[t] = de
-                        eb_over_de[t] = e_valid[b] / de if de > 0 else np.nan
+        # fallback peak +/-2 window features, accepted candidates overwrite below
+        lo = max(0, idx_peak - 2)
+        hi = min(len(e_valid), idx_peak + 3)
+        f_para = np.nanmean(para_t[lo:hi])
+        f_anti = np.nanmean(anti_t[lo:hi])
+        f_omni = np.nanmean(omni_finite[lo:hi])
+        if pa_ok_both[t] and np.isfinite(f_para) and np.isfinite(f_anti) and (f_para + f_anti) > 0:
+            asymmetry[t] = (f_para - f_anti) / (f_para + f_anti)
+            e_beam[t] = e_peak[t]
+        if pa_ok_para[t] and np.isfinite(f_para) and f_omni > 0:
+            para_to_omni[t] = f_para / f_omni
 
         # e_flow/e_th, ratio of bulk kinetic to thermal energy, beams have higher ratio
         if vel_interp is not None and temp_interp is not None:
@@ -715,6 +732,238 @@ def extract_features(
                 # puts e_flow in same units as T so the ratio is meaningful
                 e_flow = 0.5 * PROTON_MASS_KG * (v_mag * 1e3) ** 2 * EV_PER_JOULE
                 energy_ratio[t] = e_flow / T
+
+    # hysteresis acceptance, temporal correlation converted into significance,
+    # noise is independent per spin so two lo-bar neighbors agreeing in sign
+    # and band are jointly rarer than one hi-bar detection
+    for t, c in cands.items():
+        ok = c["hi_ok"]
+        promoted = False
+        if not ok:
+            b_lo, b_hi = c["idxs"][0], c["idxs"][-1]
+            for tn in (t - 1, t + 1):
+                nb = cands.get(tn)
+                if nb is None or nb["sign"] != c["sign"]:
+                    continue
+                # 1-bin slop on band overlap, beams drift across log-spaced bins
+                if b_lo <= nb["idxs"][-1] + 1 and nb["idxs"][0] <= b_hi + 1:
+                    ok = promoted = True
+                    break
+        # edge veto, a promoted pair with no hi-bar detection nearby and a band
+        # at the spectrum top edge is indistinguishable from tail anisotropy
+        if ok and promoted and not any(
+                cands.get(tn, {}).get("hi_ok") for tn in (t - 2, t - 1, t + 1, t + 2)):
+            w = c["omni"][c["idxs"]]
+            if w.sum() > 0:
+                e_run = np.sum(e_valid[c["idxs"]] * w) / w.sum()
+                if e_run >= pair_e_max:
+                    ok = False
+        if ok:
+            coherent_ok[t] = True
+            hyst_promoted[t] = promoted
+
+    for t in np.where(coherent_ok)[0]:
+        c = cands[t]
+        idx_arr = c["idxs"]
+        asym_bins = c["asym_bins"]
+        para_t = c["para"]
+        anti_t = c["anti"]
+        # flux-weighted avg over only the qualifying bins in the run
+        # gaps are excluded so their non-beam contribution doesnt pollute the avg
+        # flag if any run bin leaned on a clamped (depleted) perp denominator
+        perp_depleted[t] = bool(np.any(c["perp_subfloor"][idx_arr]))
+        # flag if any run bin used an empty field-aligned cone at its floor
+        cone_floored[t] = bool(np.any(c["cone_empty"][idx_arr]))
+        w = c["omni"][idx_arr]
+        w_sum = w.sum()
+        asymmetry[t] = np.sum(asym_bins[idx_arr] * w) / w_sum
+        e_beam[t] = np.sum(e_valid[idx_arr] * w) / w_sum
+        # flux-weighted mean R over the run, per-beam directional enhancement
+        r_beam[t] = np.sum(c["dir_enhanced"][idx_arr] * w) / w_sum
+        # weakest para/anti significance in the run, logged for n_sigma calibration
+        with np.errstate(invalid="ignore", divide="ignore"):
+            marg = np.abs(para_t[idx_arr] - anti_t[idx_arr]) / c["sig_d"][idx_arr]
+        if np.any(np.isfinite(marg)):
+            sig_margin[t] = float(np.nanmin(marg))
+        # max para vs max anti within the beam band, dominant/sub = flux transfer
+        run_para = para_t[idx_arr]
+        run_anti = anti_t[idx_arr]
+        mp = np.nanmax(run_para) if np.any(np.isfinite(run_para)) else np.nan
+        ma = np.nanmax(run_anti) if np.any(np.isfinite(run_anti)) else np.nan
+        if np.isfinite(mp) and np.isfinite(ma) and mp > 0 and ma > 0:
+            pa_max_ratio[t] = max(mp, ma) / min(mp, ma)
+        if pa_ok_para[t]:
+            p2o_vals = c["p2o"][idx_arr]
+            p2o_ok = np.isfinite(p2o_vals)
+            if np.any(p2o_ok):
+                w_p = w[p2o_ok]
+                para_to_omni[t] = np.sum(p2o_vals[p2o_ok] * w_p) / w_p.sum()
+
+        # spectral line detection, local to the coherent run not global
+        # a beam = the directional region is ALSO a narrow line, so we only
+        # look in the dominant cone within the run band, a prominent line
+        # elsewhere (eg the anti plasma sheet peak) is not the beam
+        # dominant cone is the one the run points at
+        cone = para_t if asymmetry[t] >= 0 else anti_t
+        fin = np.isfinite(cone) & (cone > 0)
+        if fin.sum() >= 3:
+            # compress to finite bins, log flux so prominence = brightness ratio
+            idx_map = np.where(fin)[0]
+            logf = np.log10(cone[fin])
+            # energies on the compressed axis, for converting fwhm bins to ev
+            e_comp = e_valid[idx_map]
+            # virtual valley below the low-e end when the run touches it,
+            # find_peaks cant call a maximum at the array boundary so the
+            # coldest outflow lines were invisible to the prom gate, the pad
+            # gives them their one-sided prominence from the high-e falloff
+            # 33/48 labeled positives live at this edge, 0 negatives
+            off = 0
+            e_lo2 = np.sort(e_valid)[min(1, len(e_valid) - 1)]
+            if e_valid[idx_arr].min() <= e_lo2 and len(logf) >= 2:
+                sent = logf.min() - 1.0
+                if e_comp[0] > e_comp[-1]:
+                    logf = np.append(logf, sent)
+                    e_comp = np.append(e_comp, e_comp[-1] ** 2 / e_comp[-2])
+                else:
+                    logf = np.insert(logf, 0, sent)
+                    e_comp = np.insert(e_comp, 0, e_comp[0] ** 2 / e_comp[1])
+                    off = 1
+            comp_x = np.arange(len(e_comp))
+            # wlen bounds the prominence window so a narrow line on a broad
+            # pedestal gets a local prominence and width, not inflated by far valleys
+            pks, props = find_peaks(logf, prominence=0.05, wlen=peak_wlen,
+                                    width=(None, peak_width_max))
+            # run band in valid_e index space, allow 1 bin of slop
+            lo_b = idx_arr[0] - 1
+            hi_b = idx_arr[-1] + 1
+            for j, pk in enumerate(pks):
+                if not 0 <= pk - off < len(idx_map):
+                    continue
+                b = idx_map[pk - off]
+                # line must sit inside the directional run to count
+                if b < lo_b or b > hi_b:
+                    continue
+                prom = props["prominences"][j]
+                if not np.isfinite(peak_prom[t]) or prom > peak_prom[t]:
+                    peak_prom[t] = prom
+                    peak_width[t] = props["widths"][j]
+                    e_line[t] = e_valid[b]
+                    # de = line fwhm in ev from the half-max crossings,
+                    # eb/de is how monoenergetic the beam line is
+                    e_left = np.interp(props["left_ips"][j], comp_x, e_comp)
+                    e_right = np.interp(props["right_ips"][j], comp_x, e_comp)
+                    de = abs(e_right - e_left)
+                    de_line[t] = de
+                    eb_over_de[t] = e_valid[b] / de if de > 0 else np.nan
+
+    # baseline-relative asym, logged only, catches persistent instrumental
+    # asymmetry that is significant and directional but not transient
+    # median over the window with accepted timesteps excluded so sustained
+    # outflow doesnt eat its own baseline
+    import warnings
+    half = asym_baseline_window / 2.0
+    for t in np.where(coherent_ok)[0]:
+        c = cands[t]
+        sel = ((np.abs(spectra.times - spectra.times[t]) <= half) &
+               ~coherent_ok)
+        if sel.sum() < 5:
+            continue
+        sub = asym_mat[np.ix_(np.where(sel)[0], c["idxs"])]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            base_bins = np.nanmedian(sub, axis=0)
+        w = c["omni"][c["idxs"]]
+        fin = np.isfinite(base_bins)
+        if np.any(fin) and w[fin].sum() > 0:
+            asym_baseline[t] = np.sum(base_bins[fin] * w[fin]) / w[fin].sum()
+            asym_dev[t] = asymmetry[t] - asym_baseline[t]
+
+    # flux anomaly vs same-regime rolling baseline, logged only
+    # sigma gates ask is it real this spin, this asks is it anomalous vs hours
+    # of background, beams are minutes-long transients, background is stable
+    cand_ts = np.zeros(ntime, dtype=bool)
+    for tc in cands:
+        cand_ts[tc] = True
+    regime_ok = (np.ones(ntime, dtype=bool) if baseline_mask is None
+                 else np.asarray(baseline_mask, dtype=bool))
+    def _robust_z(mat, flux, sig, sel_idx, idx_arr, w):
+        # robust z of flux vs the rolling per-bin median/MAD over sel rows
+        # quiet lobe sits at one-count floors so MAD can hit 0, clamp the
+        # denom at the poisson sigma of the median, sig scales as sqrt(flux)
+        sub = mat[np.ix_(sel_idx, idx_arr)]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            med = np.nanmedian(sub, axis=0)
+            mad = np.nanmedian(np.abs(sub - med), axis=0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sig_med = np.where(flux > 0,
+                               sig * np.sqrt(np.maximum(med, 0.0) / flux),
+                               np.nan)
+            denom = np.maximum(1.4826 * mad, sig_med)
+            z_bins = np.where(denom > 0, (flux - med) / denom, np.nan)
+        fin = np.isfinite(z_bins)
+        if np.any(fin) and w[fin].sum() > 0:
+            return float(np.sum(z_bins[fin] * w[fin]) / w[fin].sum())
+        return np.nan
+
+    def _band_e(k):
+        # flux-weighted band energy of candidate k
+        ck = cands[k]
+        wk = ck["omni"][ck["idxs"]]
+        return (np.sum(e_valid[ck["idxs"]] * wk) / wk.sum()
+                if wk.sum() > 0 else np.nan)
+
+    for t in np.where(coherent_ok)[0]:
+        c = cands[t]
+        idx_arr = c["idxs"]
+
+        # duration, chain of adjacent same-sign overlapping-band candidates,
+        # sub-threshold neighbors count, this measures persistence not acceptance
+        chain = [t]
+        for step in (-1, 1):
+            k = t
+            while True:
+                nb = cands.get(k + step)
+                cur = cands[k]
+                if nb is None or nb["sign"] != cur["sign"]:
+                    break
+                if not (cur["idxs"][0] <= nb["idxs"][-1] + 1 and
+                        nb["idxs"][0] <= cur["idxs"][-1] + 1):
+                    break
+                chain.append(k + step)
+                k += step
+        duration[t] = len(chain)
+
+        # tof dispersion, real outflow drifts smoothly in energy along the
+        # chain, an organized slope with low residual, noise pairs dont
+        if len(chain) >= 3:
+            chain.sort()
+            e_chain = np.array([_band_e(k) for k in chain])
+            fin = np.isfinite(e_chain) & (e_chain > 0)
+            if fin.sum() >= 3:
+                x = np.arange(len(chain), dtype=float)[fin]
+                logy = np.log10(e_chain[fin])
+                slope, icpt = np.polyfit(x, logy, 1)
+                chain_e_slope[t] = slope
+                chain_e_scatter[t] = float(np.std(logy - (slope * x + icpt)))
+
+        # baseline from same-regime samples with ALL candidates excluded,
+        # even rejected ones are beam-ish flux, not background
+        # wider window than the asym baseline, dense beam intervals starve a
+        # short one and the regime mask already keeps distant samples honest
+        sel = ((np.abs(spectra.times - spectra.times[t]) <= flux_baseline_window / 2.0) &
+               ~cand_ts & regime_ok)
+        if sel.sum() < 10:
+            continue
+        sel_idx = np.where(sel)[0]
+        w = c["omni"][idx_arr]
+        cone_mat = para_mat if c["sign"] > 0 else anti_mat
+        dom = (c["para"] if c["sign"] > 0 else c["anti"])[idx_arr]
+        flux_z[t] = _robust_z(cone_mat, dom, c["dom_sig"][idx_arr],
+                              sel_idx, idx_arr, w)
+        # perp z separates a beam (one cone lit) from a compression (all lit)
+        flux_z_perp[t] = _robust_z(perp_mat, c["perp"][idx_arr],
+                                   c["perp_sig"][idx_arr], sel_idx, idx_arr, w)
 
     return FeatureTable(
         times=spectra.times,
@@ -732,8 +981,17 @@ def extract_features(
         r_beam=r_beam,
         pa_max_ratio=pa_max_ratio,
         sig_margin=sig_margin,
+        asym_baseline=asym_baseline,
+        asym_dev=asym_dev,
+        flux_z=flux_z,
+        flux_z_perp=flux_z_perp,
+        duration=duration,
+        chain_e_slope=chain_e_slope,
+        chain_e_scatter=chain_e_scatter,
         coherent_ok=coherent_ok,
+        hyst_promoted=hyst_promoted,
         perp_depleted=perp_depleted,
+        cone_floored=cone_floored,
         pa_ok_both=pa_ok_both,
         pa_ok_para=pa_ok_para,
     )
@@ -745,11 +1003,16 @@ class ClassifierParams:
     asymmetry_min: float = 0.2
     width_max: float = 0.8
     para_to_omni_min: float = 1.3
+    r_beam_min: float = 8.0          # score ramp anchor, splits labeled classes
     energy_ratio_min: float = 0.5
-    score_threshold: float = 0.4
+    score_threshold: float = 0.45
     min_coverage: float = 0.01
     # poisson significance for coherent bins, replaced the old omni flux floor
-    n_sigma: float = 2.0
+    # hysteresis pair, isolated runs need hi, lo runs need a same-band neighbor
+    n_sigma_lo: float = 1.5
+    n_sigma_hi: float = 2.5
+    # pair-only promotions above this band energy read as tail anisotropy, vetoed
+    pair_e_max: float = 7000.0
     # per-bin gates for coherent-region detection
     coherent_asym_min: float = 0.2   # min |asym| per bin to qualify
     coherent_dir_min: float = 1.2    # min dominant cone / omni per bin
@@ -758,12 +1021,14 @@ class ClassifierParams:
     peak_prom_min: float = 0.3
     peak_width_max: float = 4.0      # fwhm cap in bins, rejects broad bumps
     peak_wlen: int = 5               # local window for prominence, bounds pedestal inflation
-    # weights, spectral > moments
-    w_asymmetry: float = 0.35
-    w_width: float = 0.25
-    w_para_to_omni: float = 0.25
-    # peak prom takes the slot energy ratio vacated, er stays dead
-    w_peak_prom: float = 0.15
+    # weights from label grid search 2026-07-29, R and line prominence carry
+    # the discrimination (auc .90 and .84), asym and p2o zeroed in the score,
+    # they still act upstream in the coherent gates
+    w_asymmetry: float = 0.0
+    w_width: float = 0.20
+    w_para_to_omni: float = 0.0
+    w_peak_prom: float = 0.35
+    w_r_beam: float = 0.45
     w_energy_ratio: float = 0.0
 
 
@@ -790,6 +1055,7 @@ def classify_beams(features: FeatureTable,
         asym = features.asymmetry[t]
         w = features.width[t]
         p2o = features.para_to_omni[t]
+        rb = features.r_beam[t]
 
         # no full-timestep gate, nan-features score 0 and naturally drop out
 
@@ -823,28 +1089,31 @@ def classify_beams(features: FeatureTable,
         if np.isfinite(prom):
             s_peak = np.clip(prom / params.peak_prom_min, 0, 2) / 2
 
+        # ramp on run-mean R, strongest labeled discriminator (auc 0.90),
+        # baseline 1 like p2o, 0.5 at r_beam_min which splits the label classes
+        s_r = 0.0
+        if np.isfinite(rb):
+            s_r = np.clip((rb - 1.0) / (params.r_beam_min - 1.0), 0, 2) / 2
+
         # weighted sum, weights total to 1 so score stays in [0,1]
         beam_score[t] = (params.w_asymmetry * s_asym +
                          params.w_width * s_width +
                          params.w_para_to_omni * s_p2o +
                          params.w_peak_prom * s_peak +
+                         params.w_r_beam * s_r +
                          params.w_energy_ratio * s_er)
 
-        # score-based, catches weak beams spread across features
+        # score-based, hard-rule fallback removed after label calibration,
+        # the bypass predecided 39/74 labeled cases and froze the score,
+        # asym still guards upstream via the per-bin gate and hysteresis
         score_ok = beam_score[t] >= params.score_threshold
-
-        # hard rule fallback, catches strong beams even if score is borderline
-        asym_ok = np.isfinite(asym) and abs(asym) >= params.asymmetry_min
-        width_ok = np.isfinite(w) and w <= params.width_max
-        p2o_ok = np.isfinite(p2o) and p2o >= params.para_to_omni_min
-        hard_ok = asym_ok and (width_ok or p2o_ok)
 
         # and-gate, directional run must also be a narrow line at same energy
         # both detectors agree or its not a beam, kills noise that fires one alone
         gate = (features.coherent_ok[t] and np.isfinite(prom) and
                 prom >= params.peak_prom_min)
 
-        is_beam[t] = (score_ok or hard_ok) and gate
+        is_beam[t] = score_ok and gate
 
         if np.isfinite(asym):
             if asym > 0:
@@ -927,7 +1196,7 @@ def diagnose_window(
     lines.append(f"=== Diagnostic: {ut_start}-{ut_end} UT, {len(idxs)} timesteps ===")
     lines.append(f"params: asym_min={params.asymmetry_min} width_max={params.width_max} "
                  f"p2o_min={params.para_to_omni_min} score_thr={params.score_threshold} "
-                 f"n_sigma={params.n_sigma}")
+                 f"n_sigma_lo={params.n_sigma_lo} n_sigma_hi={params.n_sigma_hi}")
 
     def interp3(src, tt):
         return [float(np.interp(tt, src[0], src[1][:, i])) for i in range(3)]
@@ -958,7 +1227,14 @@ def diagnose_window(
                      f"r_beam={features.r_beam[t]:.3f} "
                      f"pa_max_ratio={features.pa_max_ratio[t]:.3f} "
                      f"sig_margin={features.sig_margin[t]:.2f} "
-                     f"perp_depleted={features.perp_depleted[t]}")
+                     f"asym_dev={features.asym_dev[t]:.3f} "
+                     f"flux_z={features.flux_z[t]:.2f} "
+                     f"flux_z_perp={features.flux_z_perp[t]:.2f} "
+                     f"duration={features.duration[t]:.0f} "
+                     f"e_slope={features.chain_e_slope[t]:.3f} "
+                     f"hyst_promoted={features.hyst_promoted[t]} "
+                     f"perp_depleted={features.perp_depleted[t]} "
+                     f"cone_floored={features.cone_floored[t]}")
         lines.append(f"  pa_cov: para={spectra.pa_coverage_para[t]:.3f} "
                      f"anti={spectra.pa_coverage_anti[t]:.3f} "
                      f"perp={spectra.pa_coverage_perp[t]:.3f} "
@@ -976,6 +1252,20 @@ def diagnose_window(
         psig = spectra.para_sig[t]
         asig = spectra.anti_sig[t]
         ppsig = spectra.perp_sig[t]
+        # mirror the empty-cone floors so the table matches the gate math
+        if spectra.para_floor is not None:
+            pf = spectra.para_floor[t]
+            p_emp = ~np.isfinite(para) & np.isfinite(pf)
+            para = np.where(p_emp, pf, para)
+            psig = np.where(p_emp, pf, psig)
+        if spectra.anti_floor is not None:
+            af = spectra.anti_floor[t]
+            a_emp = ~np.isfinite(anti) & np.isfinite(af)
+            anti = np.where(a_emp, af, anti)
+            asig = np.where(a_emp, af, asig)
+        perp_emp = ~np.isfinite(perp) & np.isfinite(pfloor)
+        perp = np.where(perp_emp, pfloor, perp)
+        ppsig = np.where(perp_emp, pfloor, ppsig)
         lines.append("  per-bin:")
         lines.append(f"    {'E[eV]':>9} {'omni':>10} {'para':>10} {'anti':>10} "
                      f"{'perp':>10} {'asym':>7} {'p2o':>6} {'R':>6} "
@@ -987,7 +1277,7 @@ def diagnose_window(
                     (anti[b] if np.isfinite(anti[b]) else 0)
             ab = (para[b] - anti[b]) / denom if denom > 0 else np.nan
             pb = para[b] / omni[b] if omni[b] > 0 and np.isfinite(para[b]) else np.nan
-            # sigma margins, compare against n_sigma to see which gate failed
+            # sigma margins, compare against n_sigma_lo/hi to see which gate failed
             with np.errstate(invalid="ignore", divide="ignore"):
                 sd = np.sqrt(psig[b] ** 2 + asig[b] ** 2)
                 asg = abs(para[b] - anti[b]) / sd if sd > 0 else np.nan
@@ -1055,10 +1345,10 @@ def threshold_sensitivity(features: FeatureTable,
         results[param_name] = {"values": values, "beam_counts": counts,
                                "base_count": int(base_count)}
 
-    # n_sigma lives in extract_features, needs re-extraction so only runs
-    # when spectra and moments are provided
+    # n_sigma_hi lives in extract_features, needs re-extraction so only runs
+    # when spectra and moments are provided, lo clamps to hi so the pair stays sane
     if spectra is not None and moments is not None:
-        vals = [1.0, 1.5, 2.0, 2.5, 3.0]
+        vals = [1.5, 2.0, 2.5, 3.0, 3.5]
         counts = []
         for v in vals:
             f = extract_features(spectra, moments,
@@ -1067,12 +1357,14 @@ def threshold_sensitivity(features: FeatureTable,
                                  coherent_asym_min=base.coherent_asym_min,
                                  coherent_dir_min=base.coherent_dir_min,
                                  coherent_min_bins=base.coherent_min_bins,
-                                 n_sigma=v,
+                                 n_sigma_lo=min(base.n_sigma_lo, v),
+                                 n_sigma_hi=v,
+                                 pair_e_max=base.pair_e_max,
                                  peak_width_max=base.peak_width_max,
                                  peak_wlen=base.peak_wlen)
             counts.append(int(classify_beams(f, base).is_beam.sum()))
-        results["n_sigma"] = {"values": vals, "beam_counts": counts,
-                              "base_count": int(base_count)}
+        results["n_sigma_hi"] = {"values": vals, "beam_counts": counts,
+                                 "base_count": int(base_count)}
 
     return results
 
@@ -1335,8 +1627,10 @@ def write_beam_table(
 
     idxs = np.where(classification.is_beam)[0]
     cols = ["ut", "unix", "direction", "e_beam_eV", "delta_e_eV", "eb_over_de",
-            "r_beam", "pa_max_ratio", "sig_margin", "asymmetry", "e_peak_eV",
-            "beam_score"]
+            "r_beam", "pa_max_ratio", "sig_margin", "asymmetry", "asym_baseline",
+            "asym_dev", "flux_z", "flux_z_perp", "duration_steps",
+            "chain_e_slope", "chain_e_scatter", "e_peak_eV", "beam_score",
+            "cone_floored", "hyst_promoted"]
     with open(out_csv, "w", newline="") as fh:
         wr = csv.writer(fh)
         wr.writerow(cols)
@@ -1353,8 +1647,17 @@ def write_beam_table(
                 f"{features.pa_max_ratio[t]:.3f}",
                 f"{features.sig_margin[t]:.2f}",
                 f"{features.asymmetry[t]:.3f}",
+                f"{features.asym_baseline[t]:.3f}",
+                f"{features.asym_dev[t]:.3f}",
+                f"{features.flux_z[t]:.2f}",
+                f"{features.flux_z_perp[t]:.2f}",
+                f"{features.duration[t]:.0f}",
+                f"{features.chain_e_slope[t]:.4f}",
+                f"{features.chain_e_scatter[t]:.4f}",
                 f"{features.e_peak[t]:.1f}",
                 f"{classification.beam_score[t]:.3f}",
+                int(features.cone_floored[t]),
+                int(features.hyst_promoted[t]),
             ])
     print(f"[OK] wrote {out_csv} ({len(idxs)} beams)")
     return len(idxs)
@@ -1438,7 +1741,9 @@ def plot_threshold_comparison(
                                 coherent_asym_min=params.coherent_asym_min,
                                 coherent_dir_min=thr,
                                 coherent_min_bins=params.coherent_min_bins,
-                                n_sigma=params.n_sigma,
+                                n_sigma_lo=params.n_sigma_lo,
+                                n_sigma_hi=params.n_sigma_hi,
+                                pair_e_max=params.pair_e_max,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
         results.append((feat, classify_beams(feat, params)))
@@ -1523,6 +1828,19 @@ def plot_threshold_comparison(
     print(f"[OK] wrote {out_png}")
 
 
+def lobe_baseline_mask(times, moments, b_times, b_dsl, beta_max=0.1):
+    # lobe-regime mask for the flux baseline, beta = 0.4027 n[cc] T[ev] / B[nt]^2
+    # keeps plasma-sheet passages out of the baseline so they dont inflate MAD
+    if "density" not in moments or "temperature" not in moments:
+        return None
+    n = np.interp(times, moments["density_times"], moments["density"])
+    T = np.interp(times, moments["temp_times"], moments["temperature"])
+    bmag = np.interp(times, b_times, np.linalg.norm(b_dsl, axis=1))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        beta = 0.4027 * n * T / (bmag * bmag)
+    return np.isfinite(beta) & (beta < beta_max)
+
+
 @dataclass
 class PipelineResult:
     spectra: PitchAngleSpectra
@@ -1563,13 +1881,17 @@ def run_pipeline(
     print(f"  Anti coverage: {n_valid_anti}/{len(spectra.times)} timesteps")
 
     print(f"\n=== Phase 2: Feature extraction ===")
+    b_mask = lobe_baseline_mask(spectra.times, moments, b_times, b_dsl)
     features = extract_features(spectra, moments,
+                                baseline_mask=b_mask,
                                 energy_cutoff_low=energy_cutoff_low,
                                 pa_coverage_threshold=params.min_coverage,
                                 coherent_asym_min=params.coherent_asym_min,
                                 coherent_dir_min=params.coherent_dir_min,
                                 coherent_min_bins=params.coherent_min_bins,
-                                n_sigma=params.n_sigma,
+                                n_sigma_lo=params.n_sigma_lo,
+                                n_sigma_hi=params.n_sigma_hi,
+                                pair_e_max=params.pair_e_max,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
     n_finite = np.sum(np.isfinite(features.asymmetry))

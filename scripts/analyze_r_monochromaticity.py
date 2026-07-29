@@ -37,7 +37,9 @@ def _extract(spectra, moments, params, thr, cutoff):
                             coherent_asym_min=params.coherent_asym_min,
                             coherent_dir_min=thr,
                             coherent_min_bins=params.coherent_min_bins,
-                            n_sigma=params.n_sigma,
+                            n_sigma_lo=params.n_sigma_lo,
+                            n_sigma_hi=params.n_sigma_hi,
+                            pair_e_max=params.pair_e_max,
                             peak_width_max=params.peak_width_max,
                             peak_wlen=params.peak_wlen)
     return feat, classify_beams(feat, params)

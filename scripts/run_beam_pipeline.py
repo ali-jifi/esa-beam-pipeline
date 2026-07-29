@@ -3,13 +3,9 @@ import argparse
 from pathlib import Path
 
 from esa_plotting.config import set_data_dir
-from esa_plotting.beam_pipeline import (
-    run_pipeline, ClassifierParams, diagnose_window, apply_hours,
-    load_state_gsm, load_bfield_gsm,
-)
+from esa_plotting.beam_pipeline import (run_pipeline, ClassifierParams, diagnose_window, apply_hours, load_state_gsm, load_bfield_gsm)
 
 FIGURES = Path(__file__).resolve().parents[1] / "figures"
-
 
 def main() -> None:
     p = argparse.ArgumentParser(description="THEMIS ion beam detection pipeline")
@@ -30,12 +26,16 @@ def main() -> None:
                    help="Width threshold (default: 0.8)")
     p.add_argument("--p2o-threshold", type=float, default=1.3,
                    help="Para-to-omni ratio threshold (default: 1.3)")
-    p.add_argument("--score-threshold", type=float, default=0.4,
-                   help="Beam score threshold (default: 0.4)")
+    p.add_argument("--score-threshold", type=float, default=0.45,
+                   help="Beam score threshold (default: 0.45)")
     p.add_argument("--min-coverage", type=float, default=0.01,
                    help="Min PA cone solid-angle coverage (default: 0.01)")
-    p.add_argument("--n-sigma", type=float, default=2.0,
-                   help="Poisson significance for coherent bins (default: 2.0)")
+    p.add_argument("--n-sigma-lo", type=float, default=1.5,
+                   help="Lo poisson bar, runs form here, needs a neighbor (default: 1.5)")
+    p.add_argument("--n-sigma-hi", type=float, default=2.5,
+                   help="Hi poisson bar, isolated runs stand alone here (default: 2.5)")
+    p.add_argument("--pair-e-max", type=float, default=7000.0,
+                   help="Band-energy cap for pair-only promotions (default: 7000)")
     p.add_argument("--coherent-asym-min", type=float, default=0.2,
                    help="Per-bin |asym| threshold for coherent run (default: 0.2)")
     p.add_argument("--coherent-dir-min", type=float, default=1.2,
@@ -64,7 +64,9 @@ def main() -> None:
         para_to_omni_min=args.p2o_threshold,
         score_threshold=args.score_threshold,
         min_coverage=args.min_coverage,
-        n_sigma=args.n_sigma,
+        n_sigma_lo=args.n_sigma_lo,
+        n_sigma_hi=args.n_sigma_hi,
+        pair_e_max=args.pair_e_max,
         coherent_asym_min=args.coherent_asym_min,
         coherent_dir_min=args.coherent_dir_min,
         coherent_min_bins=args.coherent_min_bins,
@@ -121,7 +123,6 @@ def main() -> None:
     print(f"\n=== Threshold Sensitivity ===")
     for param, info in result.sensitivity.items():
         print(f"  {param}: {list(zip(info['values'], info['beam_counts']))}")
-
 
 if __name__ == "__main__":
     main()

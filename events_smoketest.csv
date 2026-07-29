@@ -1,0 +1,4 @@
+probe,trange_start,trange_end,interval_tag
+d,2015-12-20/11:15,2015-12-20/12:30,beam_period
+d,2016-01-20/10:00,2016-01-20/14:00,beam_period
+e,2014-08-17/12:00,2014-08-17/15:00,beam_period
