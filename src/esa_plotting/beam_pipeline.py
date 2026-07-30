@@ -504,7 +504,7 @@ def extract_features(
     coherent_min_bins: int = 2,
     n_sigma_lo: float = 1.5,
     n_sigma_hi: float = 2.5,
-    pair_e_max: float = 7000.0,
+    beam_e_max: float = 7000.0,
     peak_width_max: float = 4.0,
     peak_wlen: int = 5,
     asym_baseline_window: float = 10800.0,
@@ -749,14 +749,14 @@ def extract_features(
                 if b_lo <= nb["idxs"][-1] + 1 and nb["idxs"][0] <= b_hi + 1:
                     ok = promoted = True
                     break
-        # edge veto, a promoted pair with no hi-bar detection nearby and a band
-        # at the spectrum top edge is indistinguishable from tail anisotropy
-        if ok and promoted and not any(
-                cands.get(tn, {}).get("hi_ok") for tn in (t - 2, t - 1, t + 1, t + 2)):
+        # high-energy veto, extended 2026-07-30 from pair-only to all bars,
+        # top-of-range risers read as tail anisotropy whatever their sigma,
+        # 0 labeled positives above 7 kev vs a family of 12-16 kev negatives
+        if ok:
             w = c["omni"][c["idxs"]]
             if w.sum() > 0:
                 e_run = np.sum(e_valid[c["idxs"]] * w) / w.sum()
-                if e_run >= pair_e_max:
+                if e_run >= beam_e_max:
                     ok = False
         if ok:
             coherent_ok[t] = True
@@ -1005,14 +1005,15 @@ class ClassifierParams:
     para_to_omni_min: float = 1.3
     r_beam_min: float = 8.0          # score ramp anchor, splits labeled classes
     energy_ratio_min: float = 0.5
-    score_threshold: float = 0.45
+    score_threshold: float = 0.6
     min_coverage: float = 0.01
     # poisson significance for coherent bins, replaced the old omni flux floor
     # hysteresis pair, isolated runs need hi, lo runs need a same-band neighbor
     n_sigma_lo: float = 1.5
     n_sigma_hi: float = 2.5
-    # pair-only promotions above this band energy read as tail anisotropy, vetoed
-    pair_e_max: float = 7000.0
+    # band-energy ceiling for any accepted run, tail anisotropy territory,
+    # 0 labeled positives above it
+    beam_e_max: float = 7000.0
     # per-bin gates for coherent-region detection
     coherent_asym_min: float = 0.2   # min |asym| per bin to qualify
     coherent_dir_min: float = 1.2    # min dominant cone / omni per bin
@@ -1021,14 +1022,14 @@ class ClassifierParams:
     peak_prom_min: float = 0.3
     peak_width_max: float = 4.0      # fwhm cap in bins, rejects broad bumps
     peak_wlen: int = 5               # local window for prominence, bounds pedestal inflation
-    # weights from label grid search 2026-07-29, R and line prominence carry
-    # the discrimination (auc .90 and .84), asym and p2o zeroed in the score,
-    # they still act upstream in the coherent gates
-    w_asymmetry: float = 0.0
-    w_width: float = 0.20
-    w_para_to_omni: float = 0.0
-    w_peak_prom: float = 0.35
-    w_r_beam: float = 0.45
+    # weights from the 120-label grid search 2026-07-30, R and line prominence
+    # carry the discrimination (auc .90 and .83), retuned after the promoted
+    # review doubled the negative set in the classifiers blind region
+    w_asymmetry: float = 0.10
+    w_width: float = 0.05
+    w_para_to_omni: float = 0.05
+    w_peak_prom: float = 0.30
+    w_r_beam: float = 0.50
     w_energy_ratio: float = 0.0
 
 
@@ -1359,7 +1360,7 @@ def threshold_sensitivity(features: FeatureTable,
                                  coherent_min_bins=base.coherent_min_bins,
                                  n_sigma_lo=min(base.n_sigma_lo, v),
                                  n_sigma_hi=v,
-                                 pair_e_max=base.pair_e_max,
+                                 beam_e_max=base.beam_e_max,
                                  peak_width_max=base.peak_width_max,
                                  peak_wlen=base.peak_wlen)
             counts.append(int(classify_beams(f, base).is_beam.sum()))
@@ -1743,7 +1744,7 @@ def plot_threshold_comparison(
                                 coherent_min_bins=params.coherent_min_bins,
                                 n_sigma_lo=params.n_sigma_lo,
                                 n_sigma_hi=params.n_sigma_hi,
-                                pair_e_max=params.pair_e_max,
+                                beam_e_max=params.beam_e_max,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
         results.append((feat, classify_beams(feat, params)))
@@ -1891,7 +1892,7 @@ def run_pipeline(
                                 coherent_min_bins=params.coherent_min_bins,
                                 n_sigma_lo=params.n_sigma_lo,
                                 n_sigma_hi=params.n_sigma_hi,
-                                pair_e_max=params.pair_e_max,
+                                beam_e_max=params.beam_e_max,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
     n_finite = np.sum(np.isfinite(features.asymmetry))

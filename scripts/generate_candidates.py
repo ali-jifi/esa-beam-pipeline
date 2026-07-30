@@ -372,7 +372,7 @@ def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
                                 coherent_min_bins=params.coherent_min_bins,
                                 n_sigma_lo=params.n_sigma_lo,
                                 n_sigma_hi=params.n_sigma_hi,
-                                pair_e_max=params.pair_e_max,
+                                beam_e_max=params.beam_e_max,
                                 peak_width_max=params.peak_width_max,
                                 peak_wlen=params.peak_wlen)
     cls = classify_beams(features, params)

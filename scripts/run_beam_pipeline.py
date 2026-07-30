@@ -26,16 +26,16 @@ def main() -> None:
                    help="Width threshold (default: 0.8)")
     p.add_argument("--p2o-threshold", type=float, default=1.3,
                    help="Para-to-omni ratio threshold (default: 1.3)")
-    p.add_argument("--score-threshold", type=float, default=0.45,
-                   help="Beam score threshold (default: 0.45)")
+    p.add_argument("--score-threshold", type=float, default=0.6,
+                   help="Beam score threshold (default: 0.6)")
     p.add_argument("--min-coverage", type=float, default=0.01,
                    help="Min PA cone solid-angle coverage (default: 0.01)")
     p.add_argument("--n-sigma-lo", type=float, default=1.5,
                    help="Lo poisson bar, runs form here, needs a neighbor (default: 1.5)")
     p.add_argument("--n-sigma-hi", type=float, default=2.5,
                    help="Hi poisson bar, isolated runs stand alone here (default: 2.5)")
-    p.add_argument("--pair-e-max", type=float, default=7000.0,
-                   help="Band-energy cap for pair-only promotions (default: 7000)")
+    p.add_argument("--beam-e-max", type=float, default=7000.0,
+                   help="Band-energy ceiling for any accepted run (default: 7000)")
     p.add_argument("--coherent-asym-min", type=float, default=0.2,
                    help="Per-bin |asym| threshold for coherent run (default: 0.2)")
     p.add_argument("--coherent-dir-min", type=float, default=1.2,
@@ -66,7 +66,7 @@ def main() -> None:
         min_coverage=args.min_coverage,
         n_sigma_lo=args.n_sigma_lo,
         n_sigma_hi=args.n_sigma_hi,
-        pair_e_max=args.pair_e_max,
+        beam_e_max=args.beam_e_max,
         coherent_asym_min=args.coherent_asym_min,
         coherent_dir_min=args.coherent_dir_min,
         coherent_min_bins=args.coherent_min_bins,

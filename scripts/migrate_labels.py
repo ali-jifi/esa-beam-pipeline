@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 CANDIDATES = Path(__file__).resolve().parents[1] / "candidates"
-LAB = ("label", "label_source", "label_confidence")
+LAB = ("label", "label_source", "label_confidence", "label_note")
 
 
 def main():
@@ -23,7 +23,8 @@ def main():
         old_by_id, old_by_time = {}, {}
         for line in open(old_path):
             r = json.loads(line)
-            if r.get("label"):
+            # notes without labels carry too, borderline records are unlabeled
+            if r.get("label") or r.get("label_note"):
                 old_by_id[r["candidate_id"]] = r
                 old_by_time[(r["probe"], round(r["t_center"], 1))] = r
         if not old_by_id:
@@ -39,7 +40,8 @@ def main():
             if src is None:
                 continue
             for k in LAB:
-                r[k] = src.get(k)
+                if src.get(k) is not None:
+                    r[k] = src.get(k)
             matched.add(src["candidate_id"])
             carried_time += via_time
             carried_id += not via_time
