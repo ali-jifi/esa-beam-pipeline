@@ -1,0 +1,213 @@
+candidate_id,label,label_source,label_confidence,label_note
+a_2011-04-18T1100_111312_18,positive,manual,medium,
+a_2011-04-18T1100_111449_18,positive,manual_disagreement_review,medium,inside 04-18 episode between confirmed 111312/111626; falling chain; Te=47 ne/ni=1.51 beta=0.002 tailward; group=2011-04-18
+a_2011-04-18T1100_111803_19,positive,manual,medium,
+a_2011-04-18T1100_112117_19,positive,auto_rule,high,
+a_2011-04-18T1100_112254_19,positive,manual_disagreement_review,low,mid-episode sandwiched by positives 112117/112431 at episode energy; full stack Te=155 ne/ni=1.65; prom=0.22 soft; group=2011-04-18
+a_2011-04-18T1100_112608_21,positive,manual,medium,
+a_2011-04-18T1100_112922_21,positive,manual,medium,
+a_2011-04-18T1100_113059_20,positive,manual_promoted_review,high,
+a_2011-05-15T0900_100026_10,negative,manual_disagreement_review,medium,ne/ni=0.86; earthward; all-negative day
+a_2011-05-16T0500_071247_21,,,,"borderline permanent: incomplete stack, amplitude at threshold, no chain evidence"
+a_2011-05-16T0500_071424_21,negative,manual_promoted_review,high,weak ne_ni=0.45 flux_z=2.6
+a_2011-05-27T0900_090553_12,negative,manual_promoted_review,high,boundary beam Te=606 ne_ni=0.78
+a_2011-05-27T0900_101348_21,negative,manual_disagreement_review,medium,single-spin; ne/ni=0.73
+a_2011-06-18T0600_064544_14,negative,manual_promoted_review,high,
+a_2011-07-01T1000_105805_22,negative,manual_disagreement_review,medium,single-spin; ne/ni=0.68
+a_2012-06-14T0900_092230_11,negative,manual_promoted_review,high,
+a_2012-06-14T0900_093212_12,,,,"borderline 2026-07-30: modest anti 1 keV, off-lobe warm"
+a_2012-06-30T0600_063702_21,positive,manual_promoted_review,high,
+a_2012-06-30T0600_063839_21,positive,auto_rule,high,
+a_2012-06-30T0600_064016_22,positive,manual,medium,
+a_2012-06-30T0600_064153_21,positive,manual,medium,
+a_2012-06-30T0600_064330_23,positive,manual_promoted_review,medium,E_b near instrument floor
+a_2012-06-30T0600_064958_22,positive,manual_promoted_review,medium,Eb/dE=1.7 broad
+a_2012-06-30T0600_065940_20,,,,10min post-episode at episode energy; full cold stack (Te=54 ne/ni=1.55) but dur=1 and no chain to parent
+a_2012-06-30T0600_071059_22,negative,manual_disagreement_review,medium,lineless Eb/dE~1.0; cold stack does not rescue
+a_2012-06-30T0800_084130_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; prom=0.34
+a_2012-06-30T0800_084444_20,,,,ramp member of 0841-0908 chain ending in confirmed beams; cold stack (ne/ni=1.88 Te=63) but dur=1 Eb/dE=1.57
+a_2012-06-30T0800_084935_22,negative,manual_disagreement_review,medium,single-spin; ne/ni=1.16 Te=183; Eb/dE=1.38; 15min from confirmed 0904 cluster
+a_2012-06-30T0800_085603_6,negative,manual_disagreement_review,high,psbl; earthward keV broad; different population from cold 0904 cluster (bin 6 vs 23-24)
+a_2012-06-30T0900_094610_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; Te=727; distinct from 06:xx cold cluster
+a_2012-07-04T0800_090705_15,negative,manual_promoted_review,high,"psbl_boundary_beam, warm anti 454 eV, ne_ni=0.86 Te=466"
+a_2012-07-06T0600_063627_8,negative,manual_disagreement_review,medium,psbl_boundary_beam; tailward for once but Te=1.6keV Eb/dE=1.45; hot broad
+a_2012-07-08T0800_103033_23,negative,manual_disagreement_review,medium,lineless; Eb/dE=1.08
+a_2012-07-11T0500_063728_6,,,,borderline 2026-07-30: cold lobe but 5.4 keV bidirectional
+a_2012-07-15T1000_112456_9,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; Te=1.3keV
+a_2012-07-17T0700_071048_15,negative,manual_promoted_review,high,Te=3.1 keV R=3.9
+a_2012-07-23T0400_040634_22,negative,manual_disagreement_review,medium,isolated single-spin; ne/ni=1.05; no episode anchor on this day
+a_2013-08-13T1600_163319_6,negative,manual_disagreement_review,high,psbl_boundary_beam; in-lobe by beta but earthward; broad
+a_2013-08-13T1600_163627_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; sister of 163319
+a_2013-08-31T1100_111909_12,negative,manual,medium,
+a_2013-08-31T1100_114234_19,negative,manual_disagreement_review,medium,Te=283; single spin; sister 114541 already negative
+a_2013-08-31T1100_114541_15,negative,manual,medium,
+a_2013-08-31T1100_114715_17,positive,manual_promoted_review,medium,"in_lobe False, verify regime"
+a_2013-08-31T1100_124153_9,negative,manual_disagreement_review,medium,Te=920; warm boundary; narrow Eb/dE=4.5 and ne/ni=1.68 noted but Te kills
+a_2013-08-31T1100_132844_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe; 7keV
+a_2013-09-02T1200_123803_7,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; Te=3keV; ne/ni=0.88
+a_2013-09-24T1200_130957_20,,,,mid-episode 93s after confirmed 130824 with full cold stack but flux_z=2.0 at noise floor
+a_2013-09-24T1200_131612_22,positive,auto_rule,high,
+a_2013-09-24T1200_134245_13,positive,auto_rule,high,
+a_2013-09-24T1200_134552_21,positive,auto_rule,high,
+a_2013-09-24T1200_134726_23,positive,auto_rule,high,
+a_2013-09-24T1200_141051_23,negative,manual_disagreement_review,medium,single-spin; ne/ni=0.81; 23min from nearest confirmed; too far for edge
+a_2013-10-14T1000_120222_23,positive,manual,medium,
+a_2013-10-14T1000_121316_24,positive,auto_rule,high,
+a_2013-10-14T1000_131226_21,positive,manual_promoted_review,high,
+a_2013-10-14T1000_131533_23,positive,auto_rule,high,
+a_2013-10-14T1000_131706_21,positive,auto_rule,high,
+a_2013-10-14T1000_132146_23,positive,manual,medium,
+a_2013-10-14T1000_133107_20,positive,auto_rule,high,
+a_2013-10-14T1000_133413_20,positive,auto_rule,high,
+a_2013-10-14T1000_134507_19,positive,manual,medium,
+a_2013-10-14T1400_151218_10,positive,manual_promoted_review,medium,"borderline resolved: weak prom 0.125, duration 4 + cold stack carries"
+a_2013-10-14T1400_151352_10,negative,manual,medium,
+a_2013-10-14T1400_151525_12,positive,manual_promoted_review,high,"same beam as 151218, same event group"
+a_2013-10-30T0900_093926_22,positive,auto_rule,high,
+a_2013-10-30T0900_104804_22,negative,manual_promoted_review,high,
+a_2019-05-01_052511_11,negative,manual,high,
+a_2019-05-01_175246_22,negative,manual_disagreement_review,high,dead anchor day; ne/ni=0.65; consistent with 175414 and zero-positive adjudication
+a_2019-05-01_175414_24,negative,manual_disagreement_review,high,ratio-collapse artifact; floored perp; dead anchor day; flux_z=2.5
+d_2014-11-04T1400_145553_6,negative,manual_borderline_resolution,medium,psbl_boundary_beam; earthward dir_x_bx=+1 per JSONL; keV anti; Te=214
+d_2014-11-04T1400_151557_21,positive,auto_rule,high,
+d_2014-11-14T1100_115342_15,negative,manual_promoted_review,high,boundary beam Te~1.3 keV
+d_2014-11-14T1100_115523_15,negative,manual,medium,
+d_2014-11-14T1100_120344_12,negative,manual,medium,
+d_2014-11-14T1100_120845_13,negative,manual,medium,
+d_2014-11-14T1100_121527_12,negative,manual_promoted_review,high,beta=0.23 off-lobe
+d_2014-11-14T1100_122529_13,negative,manual_disagreement_review,medium,off-lobe beta=0.21; Te=1.1keV; 11-14 negative family
+d_2014-11-14T1100_122850_13,negative,manual_disagreement_review,medium,off-lobe beta=0.24; Te=1.2keV
+d_2014-11-14T1100_130718_8,negative,manual,medium,
+d_2014-11-14T1100_131039_8,negative,manual,medium,
+d_2014-11-14T1100_131219_6,negative,manual,medium,
+d_2014-11-14T1100_131400_7,negative,manual,medium,
+d_2015-12-20T1115_111953_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward dir_x_bx=+1; precedes cold episode
+d_2015-12-20T1115_112315_23,positive,auto_rule,high,
+d_2015-12-20T1115_112818_23,positive,auto_rule,high,
+d_2015-12-20T1115_114830_22,positive,auto_rule,high,
+d_2015-12-20T1115_115333_22,positive,auto_rule,high,
+d_2015-12-20T1115_115655_23,positive,auto_rule,high,
+d_2015-12-20T1115_120017_23,positive,manual_disagreement_review,medium,inside anchor episode; confirmed neighbors 115655/120841; ne/ni=3.42 Te=67; group=2015-12-20
+d_2015-12-20T1115_120841_19,positive,auto_rule,high,
+d_2016-01-04T1000_103116_18,positive,manual_promoted_review,medium,
+d_2016-01-04T1000_103619_19,negative,manual_disagreement_review,medium,mid-episode but both criteria fail: ne/ni=1.08 and no line (prom=0.32 Eb/dE=1.85)
+d_2016-01-04T1000_113653_22,negative,manual_disagreement_review,medium,off-lobe beta=0.107; Te=262
+d_2016-01-04T1000_145024_21,,,,strong broad para hump (para/omni=5) with cold Te=102 but ne/ni=1.01 and no line; 3.4hr from confirmed episode; audit 2026-07-31: stored dir_x_bx=-1 tailward
+d_2016-01-04T1000_145708_18,,,,single-spin 194eV line prom=0.67 with Te=98 ne/ni=1.21; no chain; 3.5hr from confirmed episode
+d_2016-01-05T0900_095150_20,,,,leading edge 95s before confirmed 095331 with full cold stack but flux_z=2.4 below 012337 precedent
+d_2016-01-05T0900_095331_21,positive,manual,medium,
+d_2016-01-05T0900_100156_22,positive,manual_disagreement_review,medium,inside 01-05 episode between 095834/101021 at episode energy 65eV; ne/ni=2.09 Te=27; visible narrow line despite prom=0.11 - baseline self-bias suspected; group=2016-01-05
+d_2016-01-05T0900_100518_21,,,,"borderline 2026-07-30: cold lobe, broad Eb/dE=1.8, E_b=86"
+d_2016-01-05T0900_101021_21,positive,manual,medium,
+d_2016-01-05T0900_101202_21,positive,manual,medium,
+d_2016-01-05T0900_101524_21,positive,manual,medium,
+d_2016-01-05T0900_101704_22,negative,manual_promoted_review,high,"non-beam enhancement, not psbl: cold context but flux_z_perp=+0.91 means not cone-selective, 40 min beyond any plausible episode edge"
+d_2016-01-05T0900_102026_22,,,,inside 01-05 episode window with cold Te=29.5 but ne/ni=0.91 and no discrete line
+d_2016-01-05T0900_105909_21,positive,manual_disagreement_review,medium,inside confirmed 01-05 episode (105728/110050/110231 neighbors); ne/ni=3.53 Te=31.5 beta=0.0013 tailward; group=2016-01-05
+d_2016-01-05T0900_110050_22,positive,manual_promoted_review+chain_evidence,medium,"faint middle of confirmed 10:57-11:09 episode, organized falling drift = tof outflow signature, quiet perp; chain features used as label evidence, see circularity flag"
+d_2016-01-05T0900_130521_23,positive,manual_promoted_review,medium,E_b at floor
+d_2016-01-06T1300_130944_13,negative,manual_promoted_review,high,
+d_2016-01-10T1400_143638_12,negative,manual,medium,
+d_2016-01-17T1200_120016_7,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe; Te=403
+d_2016-01-17T1200_125548_10,negative,manual_disagreement_review,high,psbl_boundary_beam; beta=0.27 off-lobe; Te=2keV
+d_2016-01-18T1100_114820_21,negative,manual_disagreement_review,medium,isolated single-spin; no confirmed positives this day
+d_2016-01-19T1100_115002_16,positive,manual_disagreement_review,low,leading edge 100s before confirmed 115143 at same E_b=337; falling chain slope=-0.079; group=2016-01-19
+d_2016-01-19T1100_115143_18,positive,auto_rule,high,
+d_2016-01-19T1100_115827_20,positive,manual_disagreement_review,medium,inside confirmed 01-19 episode between 115324 and 120008; ne/ni=1.94 Te=78 tailward; group=2016-01-19
+d_2016-01-19T1100_120008_19,positive,auto_rule,high,
+d_2016-01-19T1100_121517_21,positive,manual,medium,
+d_2016-01-19T1100_122342_21,negative,manual_promoted_review,high,"single-spin low-E fluctuation, 1363 eV class"
+d_2016-01-20T1000_101046_11,negative,manual_disagreement_review,medium,Te=745; lineless rising para prom=0.30; 20min pre-episode but warm+no line
+d_2016-01-20T1000_103058_22,positive,auto_rule,high,
+d_2016-01-20T1000_103239_22,positive,auto_rule,high,
+d_2016-01-20T1000_103420_22,positive,auto_rule,high,
+d_2016-01-20T1000_103923_23,positive,auto_rule,high,
+d_2016-01-20T1000_104104_24,positive,auto_rule,high,
+d_2016-01-20T1000_104245_24,positive,auto_rule,high,
+d_2016-01-20T1000_104426_23,positive,auto_rule,high,
+d_2016-01-20T1000_111805_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; Te=817; kin to day's 15.8keV negatives
+d_2016-01-20T1000_121015_18,negative,manual_disagreement_review,medium,Te=506; lineless broad hump prom=0.19; 86min post-episode
+d_2016-01-20T1000_122343_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; ne/ni=2.63 does not rescue direction+energy
+d_2016-01-20T1000_122524_17,negative,manual_disagreement_review,medium,Te=691; prom=0.23; no discrete line despite dur=12
+d_2016-01-20T1000_123710_19,negative,manual_disagreement_review,medium,Te=634; prom=0.27 Eb/dE=2.0; sustained chain but no line and warm electrons
+d_2016-01-20T1000_132055_24,positive,auto_rule,high,
+d_2017-01-31T1400_151943_17,positive,manual,medium,
+d_2017-01-31T1400_152949_14,positive,manual,medium,
+d_2017-01-31T1400_153130_15,negative,manual,medium,
+d_2017-02-14T1100_142819_22,positive,manual_promoted_review,medium,"E_b=65 eV near contamination floor, verify"
+d_2017-02-14T1100_145334_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe; Te=575
+d_2017-02-15T1200_125942_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; broad keV
+d_2017-02-15T1200_132135_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe
+d_2017-02-15T1200_133000_6,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; same family as 132135/141848
+d_2017-02-15T1200_133644_6,negative,manual_disagreement_review,high,psbl_boundary_beam; 02-15 keV family (132135/133000/141848 kin)
+d_2017-02-15T1200_141707_6,negative,manual_disagreement_review,high,psbl_boundary_beam; same 02-15 family
+d_2017-02-15T1200_141848_6,negative,manual_disagreement_review,high,psbl_boundary_beam; same interval as 132135
+d_2017-02-27T1000_103004_19,negative,manual_disagreement_review,medium,off-lobe beta=0.17; Te=660
+d_2017-02-27T1000_103326_18,negative,manual_disagreement_review,medium,off-lobe beta=0.15; Te=663
+d_2017-02-27T1000_113723_8,,,,"borderline 2026-07-30: narrow 3 keV para, Te=1.3 keV against"
+d_2017-03-05T1200_130042_18,negative,manual_disagreement_review,medium,ne/ni=0.89; Te=311; no confirmed anchor on day
+d_2018-03-22T0400_050938_12,negative,manual_promoted_review,high,
+d_2018-04-07T0700_081427_6,negative,manual_disagreement_review,high,psbl_boundary_beam; off-lobe beta=0.13; earthward; broad
+d_2018-04-07T0700_122807_8,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; beta=0.32
+d_2018-04-07T0700_122953_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe beta=0.38; broad keV
+d_2018-04-07T0700_130336_6,negative,manual_promoted_review,high,
+d_2018-04-16T2200_221059_7,negative,manual_disagreement_review,high,psbl_boundary_beam; beta=0.40; earthward
+d_2018-04-20T1800_183538_14,negative,manual_promoted_review,high,
+d_2018-04-22T0000_004431_15,negative,manual_promoted_review,high,
+d_2018-04-26T0000_012028_5,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe beta=0.14; kin to day's 12keV negatives
+d_2018-05-08T0000_055405_9,positive,manual_promoted_review,medium,
+d_2018-05-12T0000_001654_7,,,,"borderline 2026-07-30: anti keV, dE wide, check dir x Bx"
+d_2018-05-24T0100_012337_19,,,,leading-edge chain of 012710; flux_z=2.7; no discrete line
+d_2018-05-24T0100_012524_20,positive,manual_disagreement_review,low,leading edge of 012710; falling chain slope=-0.09; Eb/dE=3.9 flux_z=4.2; group=2018-05-24-0127
+d_2018-05-24T0100_033453_20,negative,manual_promoted_review,high,weak flux_z=2.7 Te=389
+d_2018-05-24T0100_044217_12,positive,manual_promoted_review,high,
+d_2018-05-31T1800_181336_21,negative,manual_disagreement_review,medium,ne/ni=0.74; no line (prom=0.45 Eb/dE=1.73); 1.5hr before confirmed episode
+d_2018-05-31T1800_194218_16,positive,manual_disagreement_review,low,leading edge 106s before 194404 chain into confirmed 194737; full cold stack Te=37 ne/ni=1.47; group=2018-05-31
+d_2018-05-31T1800_194737_17,positive,manual,medium,
+d_2018-05-31T1800_195110_17,positive,manual_promoted_review,high,same event group as parent 195256
+d_2018-05-31T1800_195256_17,positive,manual_promoted_review,high,
+d_2018-05-31T1800_200854_17,positive,manual,medium,
+d_2018-05-31T1800_223421_15,,,,"borderline 2026-07-30: cold lobe context, amplitude weak"
+d_2018-05-31T1800_235411_12,,,,"borderline 2026-07-30: anti 1 keV Eb/dE=3.8, Te~1 keV conflicts"
+e_2012-07-22T0400_044621_22,negative,manual_disagreement_review,medium,broad prom=0.31; ne/ni=0.92; dominated by 045426 on every axis
+e_2012-07-22T0400_045426_22,,,,pre-episode edge of 045917; gates PASS; prom=0.46 duration=1
+e_2013-08-24T0900_101132_10,positive,manual_promoted_review,low,"broad shoulder, full cold stack + duration 5 outranks soft prom"
+e_2013-08-24T0900_102752_12,negative,manual_disagreement_review,medium,Te=1.1keV; conditions differ from 101132 16min earlier
+e_2013-08-24T0900_105221_15,negative,manual,medium,
+e_2013-08-24T0900_111044_11,negative,manual,medium,
+e_2013-08-24T0900_111246_10,negative,manual,medium,
+e_2013-08-24T0900_111448_7,negative,manual,medium,
+e_2013-08-24T0900_114728_5,negative,manual,medium,
+e_2013-08-24T0900_122007_16,negative,manual_disagreement_review,medium,Te=1.3keV; single spin
+e_2013-08-24T0900_122210_10,negative,manual_disagreement_review,medium,Te=1.7keV; boundary-day family
+e_2013-08-24T0900_122615_15,negative,manual_promoted_review,high,"flux_z=0.36, peak insignificant vs own baseline"
+e_2013-08-24T0900_123020_17,negative,manual_promoted_review,high,"psbl_boundary_beam: morphologically perfect beam, classified by population not morphology, burst-train context decisive (recurring beamlets 12:25/12:30/12:33 at 450/255/450 eV, Te=1.8keV beta=0.1 off-lobe); paper exhibit for class-definition, beam-ness and population are independent axes"
+e_2013-08-24T0900_132324_13,negative,manual_promoted_review,high,beta=0.12 Te=2.2 keV
+e_2013-08-24T0900_133944_19,negative,manual_disagreement_review,medium,Te=1.4keV; boundary-beam day family
+e_2013-08-24T0900_134956_20,negative,manual_promoted_review,high,
+e_2013-08-24T0900_135401_20,negative,manual_promoted_review,high,beta=0.11 Te=1.7 keV
+e_2013-10-09T0800_080055_12,negative,manual_disagreement_review,medium,Te=1.5keV; boundary; intense 1keV band postdates marker
+e_2013-10-09T0800_084642_10,negative,manual_disagreement_review,high,psbl_boundary_beam; Te=2.4keV
+e_2013-10-09T0800_085502_9,,,,tailward + ne/ni=1.9 but Te=1.5keV; flux_z undefined; fits neither class
+e_2013-10-09T0800_091346_16,negative,manual,medium,
+e_2013-10-09T0800_091551_15,positive,auto_rule,high,
+e_2013-10-09T0800_093844_15,negative,manual,medium,
+e_2014-08-17T1200_135240_6,negative,manual,medium,
+e_2017-01-26T0800_094538_16,negative,manual_disagreement_review,medium,Te=202 at class boundary; ne/ni=1.22; no confirmed anchor this day
+e_2017-01-26T1200_125319_6,negative,manual_disagreement_review,medium,psbl; keV broad Eb/dE=1.75; cold Te=130 noted but energy+direction+ne/ni=0.98 rule; audit 2026-07-31: stored dir_x_bx=+1 earthward
+e_2017-01-26T1200_130422_5,negative,manual_disagreement_review,high,psbl_boundary_beam; R=26 dur=10 but earthward; textbook PSBL
+e_2017-01-26T1200_135509_8,negative,manual_disagreement_review,high,psbl_boundary_beam; off-lobe beta=0.11; Te=1.7keV
+e_2017-01-26T1200_143454_16,negative,manual_promoted_review,high,
+e_2017-01-26T1200_153006_6,negative,manual_disagreement_review,high,psbl_boundary_beam; broad keV Te=374; sign audit resolved: Bx=-58nT so Bx_sign=-1 dir_x_bx=+1 earthward confirmed in jsonl and fgm
+e_2017-01-30T0600_091726_22,negative,manual_disagreement_review,medium,prom=0.21; ne/ni=1.02; single spin; 9min gap to nearest heuristic beams
+e_2018-02-22T1700_171322_8,negative,manual_disagreement_review,high,psbl_boundary_beam; earthward; off-lobe
+e_2018-02-22T1700_182902_10,negative,manual_promoted_review,high,
+e_2018-04-08T0100_021510_5,negative,manual_disagreement_review,high,psbl_boundary_beam; off-lobe; earthward; ne/ni=0.99
+e_2018-04-09T0600_093305_5,negative,manual_disagreement_review,high,psbl_boundary_beam; off-lobe beta=0.42; Te=1.3keV
+e_2018-04-29T0000_004953_23,negative,manual_disagreement_review,high,artifact regime; duration=1; floored cone; isolated
+e_2018-04-29T0000_023800_7,negative,manual_disagreement_review,high,psbl; earthward; ne/ni=0.97; broad keV
+e_2018-05-10T0000_004451_13,negative,manual_disagreement_review,medium,off-lobe beta=0.12; Te=1.2keV; broad
+e_2018-05-10T0000_013535_21,negative,manual_disagreement_review,medium,single-spin; ne/ni=0.67 despite x5 anti amplitude
+d_2015-12-20T1100_110123_14,negative,manual,medium-high,
+d_2015-12-20T1100_110948_13,negative,manual,medium,
+d_2015-12-20T1100_111129_16,negative,manual,medium,
