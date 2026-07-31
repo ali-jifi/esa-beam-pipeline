@@ -60,6 +60,14 @@ def main():
         return 0
 
     tiers = np.array([tier(i) for i in range(len(recs))])
+    # hard earthward post-filter, user decision 2026-07-31: dir_x_bx=+1 is
+    # psbl territory whatever the scores say, None (no b data) passes
+    dropped = sum(1 for i, r in enumerate(recs)
+                  if tiers[i] and r["context"].get("dir_x_bx") == 1)
+    for i, r in enumerate(recs):
+        if tiers[i] and r["context"].get("dir_x_bx") == 1:
+            tiers[i] = 0
+    print(f"earthward post-filter dropped {dropped}")
     rows = sorted((i for i in range(len(recs)) if tiers[i]),
                   key=lambda i: (tiers[i], recs[i]["t_center"]))
     with open(args.out, "w", newline="") as fh:
