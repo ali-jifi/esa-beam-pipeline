@@ -60,27 +60,37 @@ def main():
         return 0
 
     tiers = np.array([tier(i) for i in range(len(recs))])
-    # hard earthward post-filter, user decision 2026-07-31: dir_x_bx=+1 is
-    # psbl territory whatever the scores say, None (no b data) passes
+    # hard earthward post-filter, user decision 2026-07-31: scope catalog to
+    # tailward-only, earthward is ambiguous (bounce returns vs psbl flow),
+    # None (no b data) passes
     dropped = sum(1 for i, r in enumerate(recs)
                   if tiers[i] and r["context"].get("dir_x_bx") == 1)
     for i, r in enumerate(recs):
         if tiers[i] and r["context"].get("dir_x_bx") == 1:
             tiers[i] = 0
     print(f"earthward post-filter dropped {dropped}")
+    # class-tagged records leave the tiers but keep their own block,
+    # curation field only, model never sees it
+    cls_rows = [i for i, r in enumerate(recs) if r.get("class") and tiers[i]]
+    for i in cls_rows:
+        tiers[i] = 0
+    cls_all = [i for i, r in enumerate(recs) if r.get("class")]
+    print(f"class block: {len(cls_all)} records ({len(cls_rows)} pulled from tiers)")
     rows = sorted((i for i in range(len(recs)) if tiers[i]),
                   key=lambda i: (tiers[i], recs[i]["t_center"]))
+    rows += sorted(cls_all, key=lambda i: recs[i]["t_center"])
     with open(args.out, "w", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["tier", "candidate_id", "t_center_ut", "prob", "is_beam",
-                    "direction", "E_b", "R", "peak_prom", "flux_z",
+        w.writerow(["tier", "class", "candidate_id", "t_center_ut", "prob",
+                    "is_beam", "direction", "E_b", "R", "peak_prom", "flux_z",
                     "duration_steps", "label", "label_confidence"])
         for i in rows:
             r, f = recs[i], recs[i]["features"]
             def g(k):
                 v = f.get(k)
                 return f"{v:.3g}" if v is not None and np.isfinite(v) else ""
-            w.writerow([tiers[i], r["candidate_id"], r["t_center_ut"],
+            w.writerow([tiers[i] or "", r.get("class") or "",
+                        r["candidate_id"], r["t_center_ut"],
                         f"{probs[i]:.3f}", int(heur[i]), r["direction"],
                         g("E_b"), g("R"), g("peak_prom"), g("flux_z"),
                         g("duration_steps"), r.get("label") or "",

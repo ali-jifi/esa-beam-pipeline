@@ -850,6 +850,10 @@ def extract_features(
                     e_line[t] = e_valid[b]
                     # de = line fwhm in ev from the half-max crossings,
                     # eb/de is how monoenergetic the beam line is
+                    # known failure mode (081324): a single-bin line on a
+                    # sloped background gets half-max crossings in the
+                    # shoulder, de spans shoulder not line, eb/de understates
+                    # narrowness, same class as peak-contributes-to-baseline
                     e_left = np.interp(props["left_ips"][j], comp_x, e_comp)
                     e_right = np.interp(props["right_ips"][j], comp_x, e_comp)
                     de = abs(e_right - e_left)
