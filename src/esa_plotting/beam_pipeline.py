@@ -45,18 +45,20 @@ class ESDDistribution:
     an_ind: np.ndarray         # (ntime,) angle mode idx per timestep
     onecount: np.ndarray       # (ntime, 32, 176) one-count eflux level per bin
 
-def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDistribution:
+def load_esd_distribution(probe: str, trange: list[str], data_dir: str,
+                          datatype: str = "peif") -> ESDDistribution:
     # reads cdf directly bc pyspedas doesnt expose angle/energy lookup tables
+    # peir = reduced mode, spin cadence ~3.2 s vs peif ~100 s, same cdf layout
     import os
     os.environ["THM_DATA_DIR"] = data_dir
 
-    themis.esd(probe=probe, trange=trange, datatype="peif",
+    themis.esd(probe=probe, trange=trange, datatype=datatype,
                time_clip=True, downloadonly=True)
 
     pattern = str(
         Path(data_dir)
         / f"th{probe}" / "l2" / "esd" / "*"
-        / f"th{probe}_l2_esa_peif_*.cdf"
+        / f"th{probe}_l2_esa_{datatype}_*.cdf"
     )
     cdf_files = sorted(glob.glob(pattern))
     if not cdf_files:
@@ -66,7 +68,7 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
     all_en_ind, all_an_ind, all_phi_offset = [], [], []
     all_eff, all_integ_t = [], []
     energy_table = phi_table = theta_table = domega_table = None
-    gf_table = geom_factor = None
+    gf_table = geom_factor = nbins_table = None
 
     for cdf_path in cdf_files:
         cdf = CDF(cdf_path)
@@ -128,6 +130,7 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
             domega_table = cdf.varget("domega")       # (32, 176, 3)
             gf_table = cdf.varget("gf")               # (32, 176, 3)
             geom_factor = float(cdf.varget("geom_factor"))
+            nbins_table = np.asarray(cdf.varget("nbins"))
 
         del cdf
 
@@ -142,6 +145,22 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str) -> ESDDi
     phi_offset = np.concatenate(all_phi_offset)
     eff = np.concatenate(all_eff)
     integ_t = np.concatenate(all_integ_t)
+
+    if datatype == "peir":
+        # reduced mode mixes angle-resolved and omni packing per sample,
+        # cone split needs real solid-angle coverage so keep the dominant
+        # mode with >=50 bins, single-table logic below then stays valid
+        ok = nbins_table[an_ind] >= 50
+        if not ok.any():
+            raise ValueError(f"no angle-resolved {datatype} samples in {trange}")
+        keep = int(np.bincount(an_ind[ok]).argmax())
+        sel = an_ind == keep
+        if (~sel).sum():
+            print(f"[peir] kept mode {keep} ({sel.sum()} samples), "
+                  f"dropped {(~sel).sum()} other-mode samples")
+        times, eflux, bins_mask = times[sel], eflux[sel], bins_mask[sel]
+        en_ind, an_ind, phi_offset = en_ind[sel], an_ind[sel], phi_offset[sel]
+        eff, integ_t = eff[sel], integ_t[sel]
 
     mode_en = int(np.median(en_ind))
     mode_an = int(np.median(an_ind))

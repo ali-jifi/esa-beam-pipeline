@@ -306,14 +306,19 @@ def render_cutout(spectra, rec, out_png):
     ax2 = fig.add_subplot(gs[1, 1])
     ax2.axis("off")
     ft, gt, cx = rec["features"], rec["gates"], rec["context"]
+    # one key column and right-justified values across all sections so the
+    # numbers land inline, monospace makes the right edges a clean rail
+    kw = max(len(k) for k in [*ft, *gt, *cx]) + 1
     def fmt(v):
-        return "nan" if v is None else (f"{v:.3g}" if isinstance(v, float) else str(v))
+        s = ("nan" if v is None
+             else f"{v:.3g}" if isinstance(v, float) else str(v))
+        return f"{s:>9}"
     txt = ["features"]
-    txt += [f"  {k:<11}= {fmt(v)}" for k, v in ft.items()]
+    txt += [f"  {k:<{kw}}= {fmt(v)}" for k, v in ft.items()]
     txt += ["gates (strict)"]
-    txt += [f"  {k:<11}= {'PASS' if v else 'FAIL'}" for k, v in gt.items()]
+    txt += [f"  {k:<{kw}}= {fmt('PASS' if v else 'FAIL')}" for k, v in gt.items()]
     txt += ["context"]
-    txt += [f"  {k:<13}= {fmt(v)}" for k, v in cx.items()]
+    txt += [f"  {k:<{kw}}= {fmt(v)}" for k, v in cx.items()]
     txt += [f"is_beam({rec['profile']}) = {rec['is_beam']}  dir={rec['direction']}"]
     ax2.text(0.0, 1.0, "\n".join(txt), va="top", family="monospace", fontsize=9)
 
@@ -348,7 +353,7 @@ def _load_te(probe):
 
 
 def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
-                 energy_cutoff=30.0, cutouts=True):
+                 energy_cutoff=30.0, cutouts=True, datatype="peif"):
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{probe}_{_fstag(trange[0])}_{profile_name}"
     jsonl = out_dir / f"{stem}.jsonl"
@@ -358,7 +363,7 @@ def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
         return None
 
     params = make_profile(profile_name)
-    dist = load_esd_distribution(probe, trange, data_dir)
+    dist = load_esd_distribution(probe, trange, data_dir, datatype=datatype)
     b_times, b_dsl = load_bfield_dsl(probe, trange, data_dir)
     moments = load_moments(probe, trange, data_dir)
     spectra = compute_pa_spectra(dist, b_times, b_dsl)
@@ -418,6 +423,7 @@ def main():
     p.add_argument("--energy-cutoff", type=float, default=30.0)
     p.add_argument("--out", default=str(CANDIDATES))
     p.add_argument("--no-cutouts", action="store_true")
+    p.add_argument("--datatype", default="peif", choices=["peif", "peir"])
     args = p.parse_args()
 
     data_dir = set_data_dir()
@@ -426,18 +432,28 @@ def main():
     if args.events:
         with open(args.events, newline="") as fh:
             rows = list(csv.DictReader(fh))
+        fails = 0
         for row in rows:
             trange = [row["trange_start"], row["trange_end"]]
-            run_interval(row["probe"], trange, row["interval_tag"],
-                         args.profile, data_dir, out_dir,
-                         energy_cutoff=args.energy_cutoff,
-                         cutouts=not args.no_cutouts)
+            try:
+                run_interval(row["probe"], trange, row["interval_tag"],
+                             args.profile, data_dir, out_dir,
+                             energy_cutoff=args.energy_cutoff,
+                             cutouts=not args.no_cutouts,
+                             datatype=args.datatype)
+            except Exception as e:
+                # one bad interval must not kill a multi-day batch
+                fails += 1
+                print(f"[fail] {row['probe']} {trange[0]}: {type(e).__name__}: {e}")
+        if fails:
+            print(f"[warn] {fails}/{len(rows)} intervals failed")
     else:
         trange = apply_hours(args.trange, args.hours)
         run_interval(args.probe, trange, args.tag, args.profile,
                      data_dir, out_dir,
                      energy_cutoff=args.energy_cutoff,
-                     cutouts=not args.no_cutouts)
+                     cutouts=not args.no_cutouts,
+                     datatype=args.datatype)
 
 
 if __name__ == "__main__":

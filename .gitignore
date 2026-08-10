@@ -13,3 +13,24 @@ candidates/cutouts/
 candidates/analysis/
 candidates/pre_*/
 *.jsonl.tmp
+
+# tail2015 raw batch is regenerable from events_tail2015.csv, only the
+# label-bearing files are tracked, episode labels live inside them
+candidates/tail2015/*
+!candidates/tail2015/a_2015-11-03T0300_survey.jsonl
+!candidates/tail2015/a_2015-12-20T0100_survey.jsonl
+!candidates/tail2015/a_2015-12-25T0200_survey.jsonl
+!candidates/tail2015/a_2015-12-26T0200_survey.jsonl
+!candidates/tail2015/a_2015-12-31T0200_survey.jsonl
+!candidates/tail2015/d_2015-11-03T0400_survey.jsonl
+!candidates/tail2015/d_2015-11-13T0300_survey.jsonl
+!candidates/tail2015/d_2015-12-09T0200_survey.jsonl
+!candidates/tail2015/d_2015-12-20T0200_survey.jsonl
+!candidates/tail2015/d_2015-12-21T0200_survey.jsonl
+!candidates/tail2015/d_2015-12-31T0200_survey.jsonl
+!candidates/tail2015/e_2015-11-03T0400_survey.jsonl
+!candidates/tail2015/e_2015-12-18T0200_survey.jsonl
+!candidates/tail2015/e_2015-12-20T0200_survey.jsonl
+!candidates/tail2015/e_2015-12-21T0200_survey.jsonl
+!candidates/tail2015/e_2015-12-24T0200_survey.jsonl
+!candidates/tail2015/e_2015-12-31T0300_survey.jsonl

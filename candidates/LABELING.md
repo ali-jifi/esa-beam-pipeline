@@ -31,8 +31,46 @@ not "looks like a beam."
    kills real episode members there, revisit the bar with fresh evidence,
    not case-by-case mercy. Watchlist of episode-anchored sub-unity
    positives kept under the override: 090859, 082144, 095728, 130516,
-   103800, 150937, 235219. Open check: do ne/ni dips anticorrelate with
-   anything instrumental.
+   103800, 150937, 235219.
+
+   **Regime conditioning (2026-08-03, closes the instrumental check)**:
+   ne/ni is not noise (median 16% adjacent-sample variation vs 50% for
+   flux_z; dips ANTIcorrelate with counting-floor flags) — it is a smooth
+   regime variable measuring the hidden cold-ion fraction, riding beta
+   (deep lobe median 1.87, plasma-sheet-adjacent 1.06). The bar is
+   therefore regime-conditioned:
+   - beta < 3e-3: bar in full force (ne/ni class auc .83 below the cut;
+     positives run ~1.65 mid-band).
+   - beta >= 3e-3: bar INAPPLICABLE (auc collapses .73 -> .57 between
+     2e-3 and 3e-3, chance by 6e-3; sweep run with the adjudicated cases
+     excluded). Population calls there rest on Te + episode + line.
+   - Boundary frozen at beta = 3e-3, the first sampled cut at chance.
+     Tie-break: beta within ~35% of the boundary (q75 of adjacent-sample
+     beta variation) = boundary case, evaluated under BOTH band logics;
+     if the outcomes differ, register. Precedent: 235219 (beta 4.0e-3,
+     assigned transition band, survives mid-band treatment also).
+   - ne/ni < ~0.5 at ANY beta = moment QC flag, not evidence (055405's
+     0.09, 090859's 0.45) — extreme collapse is a different phenomenon
+     from a marginal dip.
+   - Evidence hierarchy, not mercy: mid-band sub-1.2 positives
+     (145247/145609/025248) are held because episode membership + visual
+     confirmation outrank one context feature — the codified ordering,
+     distinct from the case-by-case mercy ruled out for 005223/224646.
+   - FALSIFIABLE PREDICTION for the 2015 scale-out: mid-band sub-1.2
+     positives should be RARE (positives there run ~1.65). If the
+     scale-out produces many, either the band statistics or the
+     2017-01-31 episode labels have a problem. CONFIRMED on the first
+     peir batch (2026-08-03): 0/31 episode positives below 1.2, lowest
+     exactly 1.20; watchlist gains no members.
+   - Watchlist through the regime lens: the clause explains only
+     103800 (transition) and 235219 (boundary). 090859 (0.45) falls to
+     the QC threshold. 082144 (0.55), 095728, 130516, 150937 are
+     mid/deep-band anomalies that remain the amplitude override's
+     independent caseload — the override is NOT absorbed by the regime
+     clause. Stage-2 instrumental check (moments-level, spacecraft
+     potential) targeted at deep/mid-band extreme dips during scale-out.
+   - Circularity exposure: same class as the flux_z floor — derived once
+     (deferred cases excluded from the derivation), applied forward.
 3. Adjacency alone NEVER suffices. Being minutes from a confirmed episode
    at a similar energy is supporting context, not evidence. No chain to
    the parent, no promotion (see borderlines 065940, 084444).
@@ -143,8 +181,11 @@ review (142819 contamination-floor + Te=554; 114715 two-population
 structure conflated into one record; 101132 broad step below floor);
 2 kept via the episode-sandwich floor exemption (112254, 105909);
 7 weak-regime ne/ni cases (103800, 235219, 103116, 080959, 145247,
-145609, 025248) deferred pending the ne/ni instrumental check — the
-only open analysis gating them.
+145609, 025248) resolved 2026-08-03 by the regime clause — all keep
+their positive labels with regime annotations (4 transition-band incl
+the 235219 boundary precedent, 3 mid-band on evidence hierarchy). The
+instrumental check is CLOSED at stage 1; stage 2 (moments-level, for
+deep/mid-band extreme dips) rides along with the 2015 scale-out.
 
 Sweep history: 2026-08-02 register sweep resolved 7 negative (045426,
 102026, 145024, 145708 by floor, 103455, 134429, 214308 by episode-max
@@ -160,9 +201,12 @@ audit, did not flip, died on ne/ni.
 - `label`: positive | negative | null
 - `label_source`: auto_rule | manual_unanimous | manual_promoted_review |
   manual_disagreement_review | manual_borderline_resolution |
-  flux_z_floor_rule | manual_catalog_review | manual_class_adjudication;
-  suffix `+chain_evidence` flags labels whose evidence included chain
-  features (circularity audit for model A).
+  flux_z_floor_rule | manual_catalog_review | manual_class_adjudication |
+  manual_episode_review; suffix `+chain_evidence` flags labels whose
+  evidence included chain features (circularity audit for model A).
+  manual_episode_review (peir era, 2026-08-03): verdicts are given at
+  EPISODE level and propagate to every member sample; `group=<episode_id>`
+  in the note ties members together.
 - `class`: curation-only population tag (psbl_embedded_cold_line);
   excluded from tiers and NEVER a model feature.
 - `isolated`: true on positives promoted under the isolation clause;
@@ -172,6 +216,32 @@ audit, did not flip, died on ne/ni.
   positives promoted via episode/chain evidence. CV grouping is probe+date
   (automatic from candidate_id), which already isolates parents with their
   extensions and episode members.
+
+## tail2015 / peir episode era (2026-08-03)
+
+First peir batch: 48 episodes reviewed — 31 positive, 11 negative, 6
+borderline (tail2015 register: a_120457, d_125737, a_120851, e_125829,
+a_125552, a_121009). Constraints codified from that review, binding for
+the episode-model phase:
+
+- **CV splits by DAY, not probe or episode** — multi-probe same-day
+  blocks are one physical event (2015-12-31 a/d/e; 11-03 four correlated
+  negatives from one crossing). Effective sample size of the 48 is ~10
+  events. Implemented in train_model.load_labeled.
+- **Episode feature tables aggregate over members, never rep samples** —
+  five confirmed positives have rep rows with strict-gate FAILs; fitting
+  on reps would teach the model to reject valid beams.
+- **NaN flux_z policy is explicit** — episodes with no defined flux_z
+  (slow-survey/starved baselines) carry a missing indicator; never
+  silently imputed for episode fits.
+- **This batch is a sanity set, not a generalization test** — Te
+  separates pos/neg perfectly (<=110 vs >=120, no overlap) so model B is
+  a ceiling artifact by construction; flux_z_max alone is also linearly
+  separating (>=21.1 vs <=16.2). Expect near-perfect AUCs that will not
+  survive harder episodes.
+- New negative note vocabulary: plasma_sheet_anisotropy (warm broad
+  para excess in ps-adjacent plasma, the peir-era analog of
+  psbl_boundary_beam at lower energy).
 
 ## mechanics
 

@@ -89,8 +89,14 @@ def load_all():
     seen = set()
     recs = []
     for jl in files:
-        for line in open(jl):
-            r = json.loads(line)
+        frecs = [json.loads(line) for line in open(jl)]
+        # per-file sample cadence so step-counted features convert to
+        # seconds, peif ~100 s vs peir 3.2 s, min positive gap = one sample
+        ts = sorted(r["t_center"] for r in frecs)
+        gaps = [b - a for a, b in zip(ts, ts[1:]) if b - a > 0.1]
+        cadence = min(min(gaps), 200.0) if gaps else 101.0
+        for r in frecs:
+            r["_cadence"] = cadence
             key = (r["probe"], round(r["t_center"], 1))
             if key in seen:
                 continue
@@ -105,8 +111,9 @@ def load_labeled():
     for r in load_all():
         if r.get("label") not in ("positive", "negative"):
             continue
-        # probe + date, hour tags merge, works with or without the T part
-        event = "_".join(r["candidate_id"].split("_")[:2]).split("T")[0]
+        # date only, no probe: multi-probe same-day blocks are one physical
+        # event, probe-split folds leak (2015-12-31 a/d/e)
+        event = r["candidate_id"].split("_")[1].split("T")[0]
         recs.append(r)
         events.append(event)
     return recs, np.array(events)
@@ -119,6 +126,9 @@ def raw_features(r):
     nbr = r.get("_nbr", {})
     a = f.get("asymmetry")
     z = f.get("flux_z")
+    cad = r.get("_cadence", 101.0)
+    dur = f.get("duration_steps")
+    slope = f.get("chain_e_slope")
     return {
         "R": f.get("R"),
         "sig_margin": f.get("sig_margin"),
@@ -130,8 +140,9 @@ def raw_features(r):
         "flux_z": min(z, 5.0) if z is not None else None,
         "flux_z_excess": max(z - 5.0, 0.0) if z is not None else None,
         "flux_z_perp": f.get("flux_z_perp"),
-        "duration": f.get("duration_steps"),
-        "chain_e_slope": f.get("chain_e_slope"),
+        # seconds not steps, cadence-invariant across peif/peir eras
+        "duration": dur * cad if dur is not None else None,
+        "chain_e_slope": slope / cad if slope is not None else None,
         "chain_e_scatter": f.get("chain_e_scatter"),
         "width": f.get("width"),
         "para_to_omni": f.get("para_to_omni"),
