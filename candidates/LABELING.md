@@ -326,10 +326,18 @@ Final sitting, decks C/D/E (2026-08-11) — CLOSEOUT:
   Four TE breakers now exist (Te 207/236/274/276, all deep-lobe with
   visible lines) — the Te kill keeps its chain/episode exemption arm.
 - Floors re-derived for the peir era (forward-only, episode level):
-  flux_z floor 6.5 (p5 of 72 positives; old 3.5 separated nothing —
-  positives bottom at 4.8, floor-region negatives at 2.7/3.1);
   prominence floor 0.55 (observed positive minimum; tight — negatives
   reach 0.43 nearby, apply with episode-anchor exemption only).
+  **flux_z floor RESCINDED as a gate (2026-08-11, blind deck)**: the
+  6.5 derivation is void — blind-confirmed positives sit at fz 0.64 and
+  3.64, and the cause is structural: the rolling baseline ABSORBS a
+  persistent beam (the longer it lasts, the more it becomes its own
+  reference — factor ~50 on one continuous structure: a_115918 fz 0.64
+  vs a_115627 fz 30.1, 90 s apart on the same line). This is the
+  regime-mixing failure in a new form and explains flux_z's AUC decay
+  1.000 -> 0.79 across the arc. flux_z stays in the model feature
+  vector where it can be weighted; prominence + R carry all morphology
+  GATING.
 - 2015 catalog assembled (beam_catalog_2015.csv): hard gates upstream
   (tailward, E_b<600, beta<0.03) then model x prominence two-tier:
   tier 1 = 150 episodes (70 lpos / 6 lneg / 74 unlabeled), tier 2 =
@@ -345,12 +353,26 @@ borderline):
   at admission (TE breakers max at 276, corridor leaks start at 596 —
   clean daylight): **final tier 1 = 89 episodes (53 lpos / 0 lneg / 36
   unlabeled), tier 2 = 142.**
-- **BLIND CAVEAT (binding)**: spot-check verdicts were NOT blind to
-  model probabilities (prob column visible during review). The perfect
-  verdict/prob separation is NOT validation and must never be quoted.
-  One re-run deck with probs withheld is REQUIRED before any separation
-  number goes near the paper. Contamination rates are less affected
-  (driven by ne/ni and Te) but inherit the caveat.
+- **BLIND CAVEAT — RESOLVED (2026-08-11)**: the required blind deck ran
+  (24 never-reviewed episodes, probability and tier withheld, key
+  sealed until verdicts returned). After probe+time-overlap dedup (20
+  independent structures — episode_id dedup is INSUFFICIENT, episode
+  boundaries are pipeline artifacts; dedup on probe + time overlap
+  before computing ANY statistic): **blind verdict-vs-probability AUC
+  0.969; pooled contamination at the 0.82 threshold (spot-check +
+  blind) 1/14 = 7%, 95% CI 0-34%** — these are the quotable numbers.
+  The blind draw also reproduced the day structure exactly (positives
+  only on 12-20 and 12-31 out of 14 days) — the lobe-regime reading
+  confirmed under sampling designed to break it; this supersedes the
+  anchoring worry with the stronger result.
+  The one admitted-band false positive is a NAMED failure mode:
+  **event-boundary episodes** (e_083709, p=0.837 — the 08:33
+  conjunction's exit, beta already rising an order of magnitude while
+  morphology persists; beta 0.013 still passes the <0.03 gate). The
+  08:33 conjunction now has five members on three probes WITH a
+  measured, bounded duration (entry to the 083709 exit ~4 min later).
+  Register add: a_2015-12-31_120848 (leak — re-segmentation of the r1
+  borderline 120851, non-independent).
 - **The prediction test — the methods-section sentence**: 15/15
   context-only pre-verdicts correct; morphology changed exactly 1
   verdict in 24 (105418, the fifth TE breaker, carried by R 49.5 +
