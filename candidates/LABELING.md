@@ -221,7 +221,10 @@ audit, did not flip, died on ne/ni.
 
 First peir batch: 48 episodes reviewed — 31 positive, 11 negative, 6
 borderline (tail2015 register: a_120457, d_125737, a_120851, e_125829,
-a_125552, a_121009). Constraints codified from that review, binding for
+a_125552, a_121009; r2 added d_2015-12-21_124615, a_2015-12-20_114541,
+d_2015-12-30_133538, d_2015-12-21_125056 floor-protected,
+e_2015-12-24_123747; r3 added a_2015-12-30_132342, the best
+cold-on-negative-day case). Constraints codified from that review, binding for
 the episode-model phase:
 
 - **CV splits by DAY, not probe or episode** — multi-probe same-day
@@ -242,6 +245,167 @@ the episode-model phase:
 - New negative note vocabulary: plasma_sheet_anisotropy (warm broad
   para excess in ps-adjacent plasma, the peir-era analog of
   psbl_boundary_beam at lower energy).
+
+Round 2 (2026-08-03, 48 adversarial episodes: 27 pos / 16 neg / 5
+borderline) — structural outcomes:
+- **THE DAY CONFOUND**: only 2 of 18 labeled days contain both classes;
+  the label is nearly a function of the date. Any feature with more
+  between-day than within-day variance looks discriminating, and
+  leave-one-day-out CV cannot protect (16/18 folds are single-class).
+  Episode-model AUCs are optimistic until round 3 (within-day
+  stratification: negatives hunted on positive days and vice versa)
+  either breaks the confound or proves the model is a day classifier.
+- **Duration features poisoned in this label set**: r2 stratification
+  paired long hot negatives against short cold positives, so n_samples /
+  duration coefficients read sampling, not physics (fitted -1.80 on
+  log n). Dropped from episode model A.
+- flux_z and prominence got honest (AUC 1.000/0.990 -> 0.859/0.837
+  pooled) and are the realistic ceiling; Te separation (0.982) is real
+  physics but stays out of model A; model B stays an unreported
+  artifact.
+- Sub-unity ne/ni: two batches, zero sub-unity positives (6 more in r2,
+  all neg/borderline). Sub-unity is established negative-side
+  transition-band signal; watchlist stays empty.
+- Amplitude override: first three confirmed fires, all beta < 4e-3.
+- Te is breakable but barely: stratum A (Te 100-250) produced exactly
+  one hot positive (125729, Te 207 + beta 8e-4 + discrete line).
+- Constant-protection precedent: 125056 left borderline BECAUSE it sits
+  on the floor constant (fz 3.9) — labeling cases that sit on a
+  pending-re-derivation constant biases the re-derivation.
+
+Round 3 (2026-08-04, 48 within-day episodes: 0 pos / 47 neg / 1
+borderline) — THE CONFOUND RESOLVED:
+- **It was beta, not the date.** Zero of 58 positives sit above beta
+  0.0272; beta < 0.03 captures 58/58 positives admitting 16/74
+  negatives (AUC 0.991 alone). The negative days were days the
+  spacecraft never entered the lobe. The genuine null: 24 positive-hunts
+  on negative days returned zero (one borderline, 132342, on register).
+  The episode model is a LOBE DETECTOR plus a weak morphology term —
+  frame it that way everywhere.
+- **The corridor population**: 10 narrow tailward strong-amplitude
+  spikes in warm/hot ambient (fz up to 178.6, prom to 1.83), labeled
+  negative because a deployed detector fires on them. Cost accepted as
+  the true measurement: flux_z is DEAD as a discriminator (negative
+  class now out-fluxes every positive; refit coefficient went negative);
+  prominence is the only detection-only feature left carrying weight.
+  Honest episode-model number: ~0.80-0.82 day-blocked.
+- Duration features: permanently dropped, never audited (r3 negatives
+  run to 123 samples).
+- Next-batch rule: stratify on BETA WITHIN THE LOBE (beta < 0.03),
+  never on days (deck E).
+
+Final sitting, decks C/D/E (2026-08-11) — CLOSEOUT:
+- Deck C (32 disagreements: 31 neg, 1 borderline -> register): the two
+  strata were two defects, not disagreements. Model-high failures are
+  direction/energy blindness — **direction and the E_b window stay HARD
+  GATES upstream, never features** (unlearnable on 72 positives).
+  Rules-high failures confirm the project thesis: the strict AND-chain
+  fires on warm high-beta noise a fitted model rejects. New named
+  excluded population: **earthward keV-beam family** (cold electrons,
+  low-mod beta, very high flux_z, E_b 4-7 keV, earthward — reconnection
+  outflow / PSBL earthward beam; one line in the paper).
+- Deck D (16): **coldline recurrence CONFIRMED** — 8 new members on 7
+  distinct non-12-31 days, probes a/d/e. One-event objection closed.
+  44% boundary rate -> TWO MORE CONSTANTS DECLARED: Eb/dE >= ~1.0 and
+  prom >= ~0.7, plus R tightened to >= 25. Six-constant definition
+  (E_b<=300, R>=25, Te>=1keV, beta>0.05/off-lobe, Eb/dE>=1.0,
+  prom>=0.7) yields the FINAL CENSUS: 41 members over 13 days
+  (coldline_final.csv). 2015-12-08 probe-d excluded at DAY level
+  (both candidates ne/ni 0.40/0.69 — moment failure, not physics).
+- Deck E (35: 14 pos, 21 neg): morphology separates inside the lobe
+  (strong 53% vs weak 25% positive) but beta dominates (78% -> 0%
+  across two decades). The cleanly separating quantity is SIGNED
+  asym_dev: every positive in the deck has asym_dev > 0; five strong
+  negatives are anti-parallel at asym_dev -0.80..-0.86. Added to the
+  episode feature vector; it became the TOP coefficient (+1.80) and
+  lifted the lobe-scoped model to AUC 0.956 / f1 .927 (109 lobe
+  episodes, 20 day-folds). Report lobe-scoped numbers ONLY — a global
+  AUC is a lobe detector's score. Context-morphology covary below
+  beta 1e-3 and decouple above 1e-2; d_2015-12-31_131202 (ne/ni 4.63,
+  no beam) is the canonical counterexample to context-only reasoning.
+  Four TE breakers now exist (Te 207/236/274/276, all deep-lobe with
+  visible lines) — the Te kill keeps its chain/episode exemption arm.
+- Floors re-derived for the peir era (forward-only, episode level):
+  flux_z floor 6.5 (p5 of 72 positives; old 3.5 separated nothing —
+  positives bottom at 4.8, floor-region negatives at 2.7/3.1);
+  prominence floor 0.55 (observed positive minimum; tight — negatives
+  reach 0.43 nearby, apply with episode-anchor exemption only).
+- 2015 catalog assembled (beam_catalog_2015.csv): hard gates upstream
+  (tailward, E_b<600, beta<0.03) then model x prominence two-tier:
+  tier 1 = 150 episodes (70 lpos / 6 lneg / 74 unlabeled), tier 2 =
+  115. Spot-check queue: 24 unlabeled tier-1 over 14 days — the final
+  review of the arc.
+
+Spot-check + arc closure (2026-08-11, 24 episodes: 8 pos / 14 neg / 2
+borderline):
+- **Measured contamination**: 33% at threshold 0.5 (4/12 decided, CI
+  14-61%), 0% at 0.85+ (0/8, CI 0-32%). Threshold moved to 0.82 —
+  costs nothing in this sample (lowest positive p=0.881, highest
+  negative p=0.764). Catalog recut with it plus a Te < 500 eV scope arm
+  at admission (TE breakers max at 276, corridor leaks start at 596 —
+  clean daylight): **final tier 1 = 89 episodes (53 lpos / 0 lneg / 36
+  unlabeled), tier 2 = 142.**
+- **BLIND CAVEAT (binding)**: spot-check verdicts were NOT blind to
+  model probabilities (prob column visible during review). The perfect
+  verdict/prob separation is NOT validation and must never be quoted.
+  One re-run deck with probs withheld is REQUIRED before any separation
+  number goes near the paper. Contamination rates are less affected
+  (driven by ne/ni and Te) but inherit the caveat.
+- **The prediction test — the methods-section sentence**: 15/15
+  context-only pre-verdicts correct; morphology changed exactly 1
+  verdict in 24 (105418, the fifth TE breaker, carried by R 49.5 +
+  cross-probe energy match). The detector is a REGIME CLASSIFIER WITH A
+  THIN MORPHOLOGY CORRECTION: regime does the work, morphology
+  resolves the residual.
+- Scoping leak traced and closed: beta < 0.03 alone admits warm
+  corridor plasma because beta and Te decouple in the transition region
+  (deck E's own result); 5 tier-1 episodes had te_med > 500, all fall
+  out at 0.82, and the Te scope arm closes the class at admission.
+- Intra-rater consistency: d_2015-12-21_124615 re-presented blind to
+  its round-2 verdict, same call both times, same reasoning. n=1 —
+  state as a limitation, not a strength.
+- Multi-probe events for statistics: 12-31 08:33 triple conjunction
+  (d 171 eV / e 295 / a 454 within 64 s — energy ordering worth a
+  dispersion analysis) and the 12-20 11:25-11:40 five-episode
+  three-probe cluster each count as ONE event.
+- Isolation clause calibrated: single-spin 3/13 positive vs
+  multi-sample 5/11, all singles at low/medium confidence.
+- Register adds: e_2015-11-13_141929; 124615 re-confirmed.
+
+Coldline 2015 census adjudication (2026-08-03): 10 confirmed + 5
+boundary + 1 not_coldline of the top-16 strict; 5 strict hits pulled on
+dir_x_bx=+1 (scope rule applies to class membership). CORRECTIONS OF
+RECORD: the class core is ONE EVENT (the 2015-12-31 d/e conjunction —
+R>=50 & prom>=1 leaves 7 candidates, all in one 25-min window); the
+beta 0.05 / Te 800 / R floors are FILTER CONSTANTS not observed edges
+(0/911 hits below beta 0.051 by construction); the corridor beta
+0.027-0.051 between lobe positives and coldline hits contains only
+plasma_sheet_anisotropy negatives. 108 hits = 108 filter passes, not a
+population, until the negative control runs (corridor candidates the
+filter REJECTS at beta 0.05-0.2, Te>1000, checked for visual
+distinctness). 105424 stays HELD — it is the type specimen by
+construction and cannot also evidence the class. Paper status: the
+12-31 conjunction is a defensible case study; no "recurring population"
+claim without the control and a multi-day core.
+
+Control outcome (2026-08-04): the deck was not a fair control (it
+varied E_b and direction alongside breadth/R — 8/16 earthward, 14/16
+above 300 eV). What it proved anyway: the class SURVIVES against broad
+low-R humps at comparable energy (R gate earns its keep at the bottom)
+and DOES NOT survive against narrow high-R lines at 581-1010 eV, which
+are morphologically indistinguishable from the core and excluded by an
+energy gate that was never declared. **FOURTH CONSTANT DECLARED:
+E_b <= ~300 eV** (strict pool tops at 175.3, wide at 303.6), justified
+physically: ionospheric ions accelerated by polar-cap potentials arrive
+at tens to a few hundred eV; narrow keV parallel lines in the plasma
+sheet are more plausibly reconnection outflow or bounce-resonant
+populations. The 581-1010 eV narrow lines are a morphologically
+identical but DISTINCT population, reported separately. The honest
+claim: morphology does not establish ionospheric origin — energy does.
+Direct evidence the gates cut a continuous structure: the 12-31 14:37
+three-probe conjunction is split by the beta gate (d at beta 0.0265 /
+Te 956 falls below both gates while e and a sit above); all three
+labeled corridor negatives.
 
 ## mechanics
 
