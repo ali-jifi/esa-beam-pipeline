@@ -9,6 +9,7 @@ __pycache__/
 .env
 *.png
 *.claude/
+paper/
 candidates/cutouts/
 candidates/analysis/
 candidates/pre_*/
