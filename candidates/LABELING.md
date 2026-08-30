@@ -390,6 +390,16 @@ borderline):
   (d 171 eV / e 295 / a 454 within 64 s — energy ordering worth a
   dispersion analysis) and the 12-20 11:25-11:40 five-episode
   three-probe cluster each count as ONE event.
+  CORRECTION OF RECORD 2026-08-17: the "energy ordering" reading does
+  not survive the position join. The three energies are at three
+  different times across the 64 s, and each probe moves within the
+  event (a also has 175 eV at 083301 sub-threshold, e runs 295 -> 57
+  -> 441), so position and time are confounded. Measured separations
+  dX 0.34 / dY 0.06 / dZ 0.97 Re put the field-aligned baseline at
+  ~10 s of arrival spread vs the ~100 s peif cadence — cross-probe
+  TOF is unresolvable in survey for EVERY probe pair in tail2015
+  (max dX over the batch 2.09 Re = 55 s). Dispersion analysis is a
+  peir-era task. The one-event counting rule is unaffected.
 - Isolation clause calibrated: single-spin 3/13 positive vs
   multi-sample 5/11, all singles at low/medium confidence.
 - Register adds: e_2015-11-13_141929; 124615 re-confirmed.

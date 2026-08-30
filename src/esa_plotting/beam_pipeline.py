@@ -33,6 +33,9 @@ def _trange_tag(trange: list[str]) -> str:
 @dataclass
 class ESDDistribution:
     # 3d ion dist from themis esa esd files
+    # shapes below are peif, peir arrays are (ntime, 32, 88)
+    # either way only the active mode is populated, 32x88 for peif and
+    # 24x50 for peir, the rest is masked off by bins_mask
     times: np.ndarray          # (ntime,) unix timestamps
     eflux: np.ndarray          # (ntime, 32, 176) energy flux
     energy: np.ndarray         # (32,) energy vals in ev for active mode
