@@ -9,6 +9,7 @@ from esa_plotting.config import set_data_dir
 from esa_plotting.beam_pipeline import (load_esd_distribution, load_bfield_dsl,
                                         compute_pa_spectra)
 from generate_candidates import render_cutout
+from rerender_cutouts import load_probs
 
 TAIL = Path(__file__).resolve().parents[1] / "candidates" / "tail2015"
 ANA = TAIL / "analysis"
@@ -28,6 +29,8 @@ def main():
     rows = list(csv.DictReader(open(args.csv)))
     eps = {json.loads(l)["episode_id"]: json.loads(l)
            for l in open(ANA / "episodes.jsonl")}
+    cat = ANA / "beam_catalog_2015.csv"
+    probs = load_probs(cat) if cat.exists() else None
     jobs = []
     for r in rows:
         rid = r.get("rep_id") or eps[r["episode_id"]]["rep_id"]
@@ -54,7 +57,8 @@ def main():
         bt, bd = load_bfield_dsl(a["probe"], a["trange"], data_dir)
         spectra = compute_pa_spectra(dist, bt, bd)
         for rid, r in recs.items():
-            render_cutout(spectra, r, cut / f"{rid}.png")
+            prob = probs.get(rid, float("nan")) if probs is not None else None
+            render_cutout(spectra, r, cut / f"{rid}.png", prob=prob)
         print(f"[ok] {fname}: {len(recs)} cutouts")
 
     from PIL import Image

@@ -132,7 +132,7 @@ The per-timestep pipeline is deliberately permissive: it *generates candidates*,
 
 - `generate_candidates.py` - wraps the pipeline without changing it; emits one JSONL record per coherent-run candidate plus a PNG spectrum cutout each. Two profiles: **strict** (production `ClassifierParams`, single source of truth) and **survey** (sigma bars and R gate at 0.5x, cast wide and let the strict gate bitmask sort it). Each record carries features, per-gate pass/fail at strict thresholds, and plasma context (beta from moments + GSM B, ne/ni ratio, Te, `dir_x_bx` = beam direction x sign(Bx), where -1 = tailward = outflow-consistent). Batch mode via `--events` CSV; `--datatype peir` for reduced-mode 3.2 s data.
 - `contact_sheet.py` - tiles candidate cutouts into contact sheets for fast eyeball labeling.
-- `rerender_cutouts.py` - redraws cutout PNGs from existing JSONLs, records never touched.
+- `rerender_cutouts.py` - redraws cutout PNGs from existing JSONLs, records never touched. `--existing` limits to cutouts already on disk, `--catalog` puts the model prob in the cutout title (episode catalogs map through the `episodes.jsonl` beside them), `--cut-dir` / `--datatype peir` for the 2015 layout.
 - `migrate_labels.py` - carries labels from a backup of candidate JSONLs into regenerated ones (join on candidate_id, fallback probe + t_center).
 - `analyze_candidates.py` - pools candidate JSONLs (deduped on physical timestep) and plots feature distributions for auto-label calibration.
 - `candidates/LABELING.md` - the labeling standard: kill rules, derived constants, case law, frozen-labels discipline. Labels live inline in the JSONLs; `labels_frozen_*.csv` snapshots them.
@@ -148,6 +148,7 @@ The per-timestep pipeline is deliberately permissive: it *generates candidates*,
 - `group_episodes.py` - groups beam-flagged snapshots into episodes: gap <= 60 s, same direction, adjacent members within 0.3 dex in energy. Writes `episodes.jsonl` with per-episode stats (duration, E_b range, context medians, representative member).
 - `build_episode_catalog.py` - episode features, lobe-scoped logistic model, and the two-tier episode catalog. **Hard gates are upstream of the model, never features**: tailward only (`dir_x_bx = -1`), E_b < 600 eV (outflow energy window), beta < 0.03 (lobe scope), Te < 500 eV (closes the corridor leak, and a missing `te_med` is admitted rather than rejected). All read the episode median except direction, which comes from the first member. Catalog cut at model prob 0.82 (blind-validated: contamination 1/14 at this threshold) plus prominence >= 0.55. Constants are the frozen 2026-08-11 closeout values; rerunning refits on current labels.
 - `render_episode_sheets.py` - renders episode representative cutouts and tiles contact sheets from a review-queue CSV.
+- `render_beam_members.py` - per-member cutouts for every catalog beam, one folder per episode under `analysis/beams/tier{n}/<episode_id>/`, refreshes the rep cutouts in `analysis/cutouts/` on the way.
 
 Outputs land in `candidates/tail2015/analysis/`: `beam_catalog_2015.csv` (tier 1 = 89 episodes / tier 2 = 142), `episodes.jsonl`, the blind-validation deck, review-round queues and sheets, and the coldline census (`coldline_final.csv`, 41 members under a six-constant frozen definition).
 

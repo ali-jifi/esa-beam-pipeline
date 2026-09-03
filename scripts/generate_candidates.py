@@ -260,7 +260,13 @@ def build_records(probe, trange, tag, profile_name, spectra, features, cls,
     return records
 
 
-def render_cutout(spectra, rec, out_png):
+# display units for the cutout text box, dimensionless keys stay blank
+UNITS = {"E_b": "eV", "dE": "eV", "peak_prom": "dex", "sig_margin": "σ",
+         "flux_z": "mad-z", "flux_z_perp": "mad-z", "duration_steps": "steps",
+         "chain_e_slope": "dex/step", "chain_e_scatter": "dex", "te_ev": "eV"}
+
+
+def render_cutout(spectra, rec, out_png, prob=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -293,8 +299,11 @@ def render_cutout(spectra, rec, out_png):
         ax0.plot(datetime.fromtimestamp(tc, tz=timezone.utc),
                  rec["features"]["E_b"], "wo", mec="k", ms=8)
     ax0.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    fig.colorbar(pcm, ax=ax0, label="eflux", pad=0.01)
-    ax0.set_title(rec["candidate_id"])
+    fig.colorbar(pcm, ax=ax0, label="eflux [eV/cm²-s-sr-eV]", pad=0.01)
+    title = rec["candidate_id"]
+    if prob is not None:
+        title += f"    model prob {prob:.3f}"
+    ax0.set_title(title)
 
     # 1d spectra at t_center via the existing certified snapshot plotter
     ax1 = fig.add_subplot(gs[1, 0])
@@ -314,11 +323,13 @@ def render_cutout(spectra, rec, out_png):
              else f"{v:.3g}" if isinstance(v, float) else str(v))
         return f"{s:>9}"
     txt = ["features"]
-    txt += [f"  {k:<{kw}}= {fmt(v)}" for k, v in ft.items()]
+    txt += [f"  {k:<{kw}}= {fmt(v)} {UNITS.get(k, '')}" for k, v in ft.items()]
+    if prob is not None:
+        txt.append(f"  {'model_prob':<{kw}}= {fmt(prob)}")
     txt += ["gates (strict)"]
     txt += [f"  {k:<{kw}}= {fmt('PASS' if v else 'FAIL')}" for k, v in gt.items()]
     txt += ["context"]
-    txt += [f"  {k:<{kw}}= {fmt(v)}" for k, v in cx.items()]
+    txt += [f"  {k:<{kw}}= {fmt(v)} {UNITS.get(k, '')}" for k, v in cx.items()]
     txt += [f"is_beam({rec['profile']}) = {rec['is_beam']}  dir={rec['direction']}"]
     ax2.text(0.0, 1.0, "\n".join(txt), va="top", family="monospace", fontsize=9)
 
