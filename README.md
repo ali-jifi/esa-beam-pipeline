@@ -2,8 +2,7 @@
 
 Detect and characterize field-aligned ion beams in THEMIS ESA particle data by reducing 3D distributions into pitch-angle-resolved energy spectra and classifying directional, narrow-line beam signatures against isotropic plasma-sheet background. On top of the per-timestep detector sits a candidate/labeling layer, a trained logistic model, and an episode-level catalog builder used to produce a validated 2015 tail-season beam catalog.
 
-Built by Ali Jifi-Bahlool
-Ad Astra per Aspera
+Built with care, by Ali Jifi-Bahlool
 
 # esa_plotting
 
@@ -200,6 +199,8 @@ Command flags:
 ## Credits
 
 Built on [pyspedas](https://github.com/spedas/pyspedas). THEMIS ESA data courtesy of the THEMIS mission (NASA) and the instrument teams.
+
+Ad Astra per Aspera
 
 ## License
 
