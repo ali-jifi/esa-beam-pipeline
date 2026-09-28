@@ -14,10 +14,12 @@ candidates/cutouts/
 candidates/analysis/
 candidates/pre_*/
 *.jsonl.tmp
+logs/
+candidates/all/report_*.html
 
-# tail2015 raw batch is regenerable from events_tail2015.csv, only the
-# label-bearing files are tracked, episode labels live inside them
-candidates/tail2015/*
+# tail season raw batches are regenerable from events_tail*.csv, only the
+# 2015 label-bearing files are tracked, episode labels live inside them
+candidates/tail*/*
 !candidates/tail2015/a_2015-10-22T0400_survey.jsonl
 !candidates/tail2015/a_2015-11-03T0300_survey.jsonl
 !candidates/tail2015/a_2015-11-09T0300_survey.jsonl
@@ -88,3 +90,9 @@ candidates/tail2015/*
 !candidates/tail2015/e_2015-12-29T0300_survey.jsonl
 !candidates/tail2015/e_2015-12-30T0300_survey.jsonl
 !candidates/tail2015/e_2015-12-31T0300_survey.jsonl
+
+# catalogs and the frozen model are tracked, jsonls and pngs are not
+!candidates/tail*/analysis/
+candidates/tail*/analysis/*
+!candidates/tail*/analysis/*.csv
+!candidates/tail*/analysis/episode_model.joblib

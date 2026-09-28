@@ -64,8 +64,12 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str,
         / f"th{probe}_l2_esa_{datatype}_*.cdf"
     )
     cdf_files = sorted(glob.glob(pattern))
+    # glob spans every year on disk and the epoch conversion below costs ~0.3 s
+    # per file, so keep only the days the trange touches (yyyymmdd in the name)
+    d0, d1 = (t.split("/")[0].replace("-", "") for t in trange)
+    cdf_files = [f for f in cdf_files if d0 <= Path(f).name.split("_")[-2] <= d1]
     if not cdf_files:
-        raise FileNotFoundError(f"No ESD CDF files found matching {pattern}")
+        raise FileNotFoundError(f"No ESD CDF files found matching {pattern} for {trange}")
 
     all_times, all_eflux, all_bins = [], [], []
     all_en_ind, all_an_ind, all_phi_offset = [], [], []

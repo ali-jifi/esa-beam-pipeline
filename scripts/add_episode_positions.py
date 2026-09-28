@@ -1,6 +1,7 @@
 # joins gsm spacecraft position onto episodes as a sidecar
 # separate file on purpose so frozen candidate records and labels stay untouched
 # reads analysis/episodes.jsonl, writes analysis/episode_positions.jsonl keyed by episode_id
+import argparse
 import json
 import logging
 import os
@@ -13,8 +14,11 @@ import numpy as np
 warnings.filterwarnings("ignore")
 logging.getLogger().setLevel(logging.WARNING)
 
+p = argparse.ArgumentParser()
+p.add_argument("--season", default="tail2015")
+SEASON = p.parse_args().season
 ROOT = Path(__file__).resolve().parents[1]
-ANA = ROOT / "candidates" / "tail2015" / "analysis"
+ANA = ROOT / "candidates" / SEASON / "analysis"
 os.environ["THM_DATA_DIR"] = str(ROOT / "data")
 
 from pyspedas import get_data  # noqa: E402

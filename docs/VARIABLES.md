@@ -137,17 +137,18 @@ Beam-flagged snapshots grouped by: gap ≤ 60 s, same direction, adjacent member
 
 Hard gates, applied upstream of the model, never features: dir_x_bx = −1 (tailward), e_b_med < 600 eV, beta_med < 0.03, te_med < 500 eV.
 
-Episode model features (aggregated over members; NaN → median + missing indicator):
+Episode model features (aggregated over members; NaN → median + missing indicator, medians frozen from the 2015 lobe set):
 
 | feature | meaning |
 |---|---|
 | log_n | log10 n_samples |
 | prom_max / flux_z_max / r_max / sig_max | member maxima of peak_prom, flux_z, R, sig_margin |
-| p2o_med / fzp_med / asym_dev_med | member medians of para_to_omni, flux_z_perp, asym_dev |
+| d2o_med / fzp_med | member medians of dominant-cone-to-omni and flux_z_perp; d2o = para_to_omni for parallel beams and para_to_omni × (1 − asym) / (1 + asym) = anti/omni for anti-parallel, so the feature follows the beam cone in either lobe |
+| asym_dev_dir | member median of asym_dev × direction, the asymmetry deviation signed in the beam direction (raw asym_dev flips sign for anti-parallel beams) |
 | log_eb_med | log10 e_b_med |
 | eb_span_dex | log10(e_b_max / e_b_min), energy wander of the episode |
 
-Catalog cut (frozen 2026-08-11): model fires at prob ≥ 0.82, prominence fires at prom_max ≥ 0.55. **Tier 1 = both fire, tier 2 = exactly one.**
+Catalog cut: model fires at prob ≥ 0.82, prominence fires at prom_max ≥ 0.55 (cut values frozen 2026-08-11; model refit 2026-09-19 with the dominant-cone features above, stored in `candidates/tail2015/analysis/episode_model.joblib` and applied unchanged to every season). **Tier 1 = both fire, tier 2 = exactly one.**
 
 ## 7. Output CSV columns
 
@@ -158,3 +159,5 @@ Catalog cut (frozen 2026-08-11): model fires at prob ≥ 0.82, prominence fires 
 `candidates/tail2015/analysis/episode_features.csv`: episode_id, day, label, n_samples, log_duration, then the episode model features (section 6) plus log_te, ne_ni, log_beta context columns.
 
 `candidates/tail2015/analysis/beam_catalog_2015.csv` (the 2015 catalog): tier, episode_id, t_start_ut, duration_s, n_samples, prob, prom_max, e_b_med, te_med, ne_ni_med, beta_med, label. prob is the lobe-scoped episode model probability; the blind-validated operating point is 0.82.
+
+`candidates/tail<year>/analysis/beam_catalog_<year>.csv`: the same columns for every other season. `candidates/all/beam_catalog_all.csv` and `episodes_all.csv`: the per-season files concatenated with a leading `season` column. `candidates/all/coverage.csv`: season, probe, n_intervals, hours (scanned), n_processed, hours_processed, hours_angle (angle-resolved reduced-mode hours inside processed intervals, the denominator for cross-season rates), n_unknown (processed intervals whose CDF was not on disk when counted).

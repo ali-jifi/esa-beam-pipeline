@@ -439,6 +439,31 @@ three-probe conjunction is split by the beta gate (d at beta 0.0265 /
 Te 956 falls below both gates while e and a sit above); all three
 labeled corridor negatives.
 
+Refit addendum (2026-09-19, multi-season scale-out):
+- Scaling to 2011-2012 (northern lobe, every tailward beam
+  anti-parallel) exposed two model features defined on the para cone:
+  asym_dev flipped sign (-0.6 vs +0.6) and para_to_omni collapsed (1.3
+  vs 4.5), so the frozen model scored those seasons near zero (3 tier-1
+  in 2011 against 89 in 2015). The 2015 lobe set is 269/282 parallel,
+  so the 2015 labels could never have shown it.
+- Fix: dominant-cone features (d2o_med = para/omni or anti/omni by
+  direction, asym_dev_dir = asym_dev x direction), refit on the same
+  148 labeled lobe episodes: day-blocked AUC 0.938 (0.950 with the old
+  features). **Tier 1 = 86 (66 lpos / 0 lneg / 20 unlabeled), tier 2 =
+  145**, same 231 episodes. 81 of the old 89 kept; 8 dropped (4 lpos,
+  e_083709 the labeled FP, 3 unlabeled); 5 added (4 lpos, 1 unlabeled).
+  The 13 anti-parallel 2015 lobe episodes now score like their parallel
+  neighbours (median 0.29 vs 0.25) and their 4 labeled negatives all sit
+  below the cut.
+- Sealed verdicts re-read under the refit, per episode without the
+  probe+time dedup: blind deck AUC 0.975, 0/4 negatives above 0.82;
+  spot-check AUC 1.000, 0/7. No label was touched.
+- The Aug 11 catalog is kept as beam_catalog_2015_frozen20260811.csv.
+  Cross-season rates use angle-resolved hours (pool_seasons.py). The
+  pending check for the anti-parallel hemisphere is a 15+15 blind deck
+  from 2011/2012 (blind_deck_2011.csv, blind_deck_2012.csv), sampled at
+  random from tier 1, to label under the rules above.
+
 ## mechanics
 
 Labels live inside the jsonls. Before any batch regen: back up to

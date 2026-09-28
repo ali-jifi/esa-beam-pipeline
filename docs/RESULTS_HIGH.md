@@ -2,6 +2,8 @@
 
 The interpretive results built on the catalog described in RESULTS_SURFACE.md. Quotability rules at the end are binding.
 
+The catalog was regenerated 2026-09-19 with the direction-invariant episode model (dominant-cone features, same labels; LABELING.md refit addendum). Catalog-derived numbers below are updated; where a statistic was computed against the sealed verdicts under the 2026-08-11 model, that value is kept and the refit value is given beside it.
+
 ## 1. Blind validation (the credibility result)
 
 A 24-episode deck was adjudicated with model probabilities and tiers withheld (key sealed). After probe + time-overlap dedup — episode_id dedup is insufficient because episode boundaries are pipeline artifacts — the deck contained 20 independent structures.
@@ -14,6 +16,8 @@ A 24-episode deck was adjudicated with model probabilities and tiers withheld (k
 
 The threshold itself was set earlier by a spot-check (contamination 33% at thr 0.5 → 0% at 0.82); that check saw model scores, so only the blind numbers are quotable for separation.
 
+Under the 2026-09-19 refit, the same sealed verdicts scored per episode (the probe + time-overlap dedup has not been re-run): blind AUC 0.975, 0 negatives among the 4 decided blind episodes above 0.82, and 0 of 11 pooled with the spot-check. The table above stays the dedup-clean pair until the dedup is repeated on the refit probabilities.
+
 ## 2. The central methods finding
 
 **The detector is a plasma-regime classifier with a thin morphology correction.** Context-only information predicted 15/15 review verdicts; morphology changed exactly 1 verdict in 24. The honest counterexample is d_131202 (ne/ni 4.63, context screams beam, no beam) — context is dominant, not infallible.
@@ -21,17 +25,17 @@ The threshold itself was set earlier by a spot-check (contamination 33% at thr 0
 Supporting structure:
 
 - **Hard-gates doctrine**: direction (tailward) and E_b window are upstream gates, never model features — 11/16 of one review round's model false positives were pure direction failures the gates now remove.
-- **Lobe-scoped model: AUC 0.956 / f1 0.927** (109 lobe episodes, 20 day-folds). Signed asymmetry deviation (asym_dev) is the top feature (+1.80); anti-parallel negatives sit at −0.8. Pooled (non-lobe-scoped) numbers are regime-inflated and are not reported.
+- **Lobe-scoped model: day-blocked AUC 0.938** under the 2026-09-19 refit (148 labeled lobe episodes, 20 day-folds; 0.950 with the original features on the same labels, 0.956 / f1 0.927 at the 2026-08-11 closeout on 109). The original top feature, raw asym_dev (+1.80, with anti-parallel negatives at −0.8), was hemisphere-dependent rather than physical: 269/282 lobe episodes in 2015 are parallel beams, and in the northern-lobe seasons (2011–2012, every tailward beam anti-parallel) it flipped sign and para_to_omni collapsed, scoring real beams near zero. Features are now defined on the beam's dominant cone (asym_dev × direction, dominant-cone/omni). Pooled (non-lobe-scoped) numbers are regime-inflated and are not reported.
 - **flux_z demoted to feature-only**: the blind deck exposed baseline absorption — the running baseline eats persistent beams (factor ~50 on one continuous structure: fz 0.64 vs 30.1, same spectral line, 90 s apart). Explains its AUC decay 1.0 → 0.79. Prominence + R carry all morphology gating.
-- **Named failure mode — event-boundary episodes**: morphology outlives the plasma regime at structure exits. The type case, e_2015-12-31_083709 (p = 0.837), is the 08:33 conjunction's exit and is the single labeled false positive in tier 1.
+- **Named failure mode — event-boundary episodes**: morphology outlives the plasma regime at structure exits. The type case, e_2015-12-31_083709 (p = 0.837 under the 2026-08-11 model), is the 08:33 conjunction's exit and was the single labeled false positive in tier 1; under the refit it drops below the 0.82 cut into tier 2, leaving tier 1 with no labeled negatives.
 
 ## 3. Multi-spacecraft events (the physics showcase)
 
-Nine physical structures (see RESULTS_SURFACE.md), six multi-probe, three simultaneous on all three probes:
+Eight physical structures at 30–60 min merge tolerance (see RESULTS_SURFACE.md; nine under the 2026-08-11 catalog), five multi-probe, two simultaneous on all three probes:
 
-- **12-31 08:33 triple conjunction**: 5 members (4 tier-1 + 1 tier-2) across a/d/e, core three within 64 s, total duration bounded at ~4–6 min. Catalog beam energies are 171 (d) / 295 (e) / 454 (a) eV — but those are three *different times* spanning that 64 s, and each probe's energy moves within the event: probe a also detects 175 eV at 08:33:01 (sub-threshold, not in catalog) and probe e runs 295 → 57 → 441 eV. The spread is confounded between probe position and time and is **not** a per-probe ordering. **Cross-probe time-of-flight is not resolvable at survey cadence** (corrected 2026-08-17): measured member separations are ΔX 0.34, ΔY 0.06, ΔZ 0.97 RE, so the field-aligned baseline (ΔX, since B ≈ ±X in the lobe) implies only ≈10 s of arrival spread against a ~100 s peif sampling interval. Dispersion analysis requires peir (3.2 s). Its exit episode is the catalog's known false positive — the event-boundary failure mode illustrated inside the showcase event.
+- **12-31 08:33 triple conjunction**: 5 members (2 tier-1 + 3 tier-2 under the refit; 4 + 1 under the 2026-08-11 model) across a/d/e, core three within 64 s, total duration bounded at ~4–6 min. Catalog beam energies are 171 (d) / 295 (e) / 454 (a) eV — but those are three *different times* spanning that 64 s, and each probe's energy moves within the event: probe a also detects 175 eV at 08:33:01 (sub-threshold, not in catalog) and probe e runs 295 → 57 → 441 eV. The spread is confounded between probe position and time and is **not** a per-probe ordering. **Cross-probe time-of-flight is not resolvable at survey cadence** (corrected 2026-08-17): measured member separations are ΔX 0.34, ΔY 0.06, ΔZ 0.97 RE, so the field-aligned baseline (ΔX, since B ≈ ±X in the lobe) implies only ≈10 s of arrival spread against a ~100 s peif sampling interval. Dispersion analysis requires peir (3.2 s). Its exit episode is the catalog's known false positive — the event-boundary failure mode illustrated inside the showcase event.
 - **12-20 11:21 structure**: 62 min, 39 episodes, all three probes — the Artemyev+ 2020 Figure 1 day, recovered independently at 30× time resolution.
-- **12-31 11:59 structure**: 71 min, 25 episodes, all three probes — the persistent structure that exposed the flux_z baseline-absorption failure.
+- **12-31 11:59 structure**: 75 min, 25 episodes, all three probes — the persistent structure that exposed the flux_z baseline-absorption failure.
 
 Occurrence statistics count each conjunction/cluster as one event.
 
@@ -59,8 +63,8 @@ The earthward exclusion is a scope restriction, not physics — bounce returns m
 
 ## 6. Quotability rules (binding)
 
-- Separation/contamination numbers: blind deck only (AUC 0.969, 7%). Spot-check numbers appear only as the threshold-setting narrative.
-- Model performance: lobe-scoped only (AUC 0.956). Never pooled.
-- Occurrence: physical events (9), not episodes (89), for any rate-of-nature claim; episodes are pipeline segments.
+- Separation/contamination numbers: blind deck only (AUC 0.969, 7% for the 2026-08-11 model; 0.975 and 0/4 per episode under the refit, dedup pending). Spot-check numbers appear only as the threshold-setting narrative.
+- Model performance: lobe-scoped only (day-blocked AUC 0.938 refit / 0.956 closeout). Never pooled.
+- Occurrence: physical events (8), not episodes (86), for any rate-of-nature claim; episodes are pipeline segments.
 - Coldline: census + case-study framing; no origin claim; type specimen excluded from evidence.
 - Limitations to state: single labeler, intra-rater consistency n = 1, tailward-only scope, 2015 Oct–Dec coverage (verified complete for 2015).

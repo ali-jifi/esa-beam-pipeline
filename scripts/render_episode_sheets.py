@@ -21,7 +21,11 @@ def main():
     p.add_argument("--prefix", required=True, help="sheet filename prefix")
     p.add_argument("--datatype", default="peir", choices=["peif", "peir"])
     p.add_argument("--per-page", type=int, default=16)
+    p.add_argument("--season", default="tail2015")
     args = p.parse_args()
+    global TAIL, ANA
+    TAIL = Path(__file__).resolve().parents[1] / "candidates" / args.season
+    ANA = TAIL / "analysis"
 
     data_dir = set_data_dir()
     cut = ANA / "cutouts"
@@ -29,7 +33,7 @@ def main():
     rows = list(csv.DictReader(open(args.csv)))
     eps = {json.loads(l)["episode_id"]: json.loads(l)
            for l in open(ANA / "episodes.jsonl")}
-    cat = ANA / "beam_catalog_2015.csv"
+    cat = ANA / f"beam_catalog_{args.season[4:]}.csv"
     probs = load_probs(cat) if cat.exists() else None
     jobs = []
     for r in rows:

@@ -1,13 +1,17 @@
 # group is_beam samples into episodes, gap<=60s, same direction,
 # adjacent members within 0.3 dex in energy
 # episode_ids here are referenced by group= tags in labeled records
+import argparse
 import json
 import glob
 from pathlib import Path
 
 import numpy as np
 
-TAIL = Path(__file__).resolve().parents[1] / "candidates" / "tail2015"
+p = argparse.ArgumentParser()
+p.add_argument("--season", default="tail2015")
+SEASON = p.parse_args().season
+TAIL = Path(__file__).resolve().parents[1] / "candidates" / SEASON
 OUT = TAIL / "analysis"
 OUT.mkdir(exist_ok=True)
 GAP = 60.0

@@ -12,6 +12,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 ANA = ROOT / "candidates" / "tail2015" / "analysis"
+CAT = ANA / "beam_catalog_2015.csv"
 
 # bridges the ~400 s slow-survey gap, below that the 12-31 11:59 structure splits in two
 # anchors are identical from 480 through 900 s so this sits at the start of the stable plateau
@@ -57,7 +58,7 @@ def load(catalog_only):
         pos[p["episode_id"]] = p
     cat = {}
     if catalog_only:
-        with open(ANA / "beam_catalog_2015.csv") as fh:
+        with open(CAT) as fh:
             cat = {r["episode_id"]: r for r in csv.DictReader(fh)}
         ids = [i for i in cat if i in eps and i in pos]
     else:
@@ -180,8 +181,13 @@ def main():
                    help="run N time-scrambled trials for the coincidence floor")
     p.add_argument("--seed", type=int, default=0)
     # not events_2015.csv, that name is taken by the root interval scan
-    p.add_argument("--out", default=str(ANA / "linked_events_2015.csv"))
+    p.add_argument("--out", default=None)
+    p.add_argument("--season", default="tail2015")
     args = p.parse_args()
+    global ANA, CAT
+    ANA = ROOT / "candidates" / args.season / "analysis"
+    CAT = ANA / f"beam_catalog_{args.season[4:]}.csv"
+    args.out = args.out or str(ANA / f"linked_events_{args.season[4:]}.csv")
 
     items = load(catalog_only=not args.all)
     evs = [summarize(g) for g in groups_of(items, link(items, args.tau, args.dy_max))]

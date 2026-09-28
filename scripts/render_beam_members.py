@@ -18,11 +18,17 @@ ANA = TAIL / "analysis"
 
 def main():
     p = argparse.ArgumentParser(description="per-member cutouts per catalog beam")
-    p.add_argument("--catalog", default=str(ANA / "beam_catalog_2015.csv"))
-    p.add_argument("--out", default=str(ANA / "beams"))
+    p.add_argument("--catalog", default=None)
+    p.add_argument("--out", default=None)
     p.add_argument("--datatype", default="peir", choices=["peif", "peir"])
     p.add_argument("--file", default=None, help="only jsonls whose name contains this")
+    p.add_argument("--season", default="tail2015")
     args = p.parse_args()
+    global TAIL, ANA
+    TAIL = Path(__file__).resolve().parents[1] / "candidates" / args.season
+    ANA = TAIL / "analysis"
+    args.catalog = args.catalog or str(ANA / f"beam_catalog_{args.season[4:]}.csv")
+    args.out = args.out or str(ANA / "beams")
 
     data_dir = set_data_dir()
     cut = ANA / "cutouts"

@@ -146,11 +146,37 @@ The per-timestep pipeline is deliberately permissive: it *generates candidates*,
 ### Episode layer and the 2015 catalog
 
 - `group_episodes.py` - groups beam-flagged snapshots into episodes: gap <= 60 s, same direction, adjacent members within 0.3 dex in energy. Writes `episodes.jsonl` with per-episode stats (duration, E_b range, context medians, representative member).
-- `build_episode_catalog.py` - episode features, lobe-scoped logistic model, and the two-tier episode catalog. **Hard gates are upstream of the model, never features**: tailward only (`dir_x_bx = -1`), E_b < 600 eV (outflow energy window), beta < 0.03 (lobe scope), Te < 500 eV (closes the corridor leak, and a missing `te_med` is admitted rather than rejected). All read the episode median except direction, which comes from the first member. Catalog cut at model prob 0.82 (blind-validated: contamination 1/14 at this threshold) plus prominence >= 0.55. Constants are the frozen 2026-08-11 closeout values; rerunning refits on current labels.
+  - **Why 0.3 dex (a factor of 2).** Adjacent reduced-mode energy bins near 60 to 100 eV differ by a factor of about 1.7 (0.24 dex), and the beam peak wobbles by one bin between spins from counting noise. 0.3 dex is the smallest tolerance that absorbs that wobble. A sensitivity test on tail2015 (2026-09-27, frozen model, tier-1 rules applied) shows factor 2 sits on a plateau: loosening to 2.5 (0.4 dex) leaves tier 1 unchanged, while tightening to 1.6 (0.2 dex), below one bin step, splits beams into fragments.
+
+    | energy-link factor            |     1.6    | 2.0 (used) | 2.5  |
+    |-------------------------------|------------|---------|---------|
+    | episodes                      | 16,297     | 11,871  | 11,343  |
+    | tier 1                        | 214        | 89      | 89      |
+    | tier-1 beam time, h           | 1.70       | 2.48    | 2.48    |
+    | tier-1 structures, same probe | 24         | 25      | 25      |
+    | tier-1 events, all probes     | 9          | 8       | 8       |
+    | days with tier 1              | 6          | 6       | 6       |
+    | labeled tier-1 negatives      | 3 of 204   | 1 of 85 | 1 of 85 |
+
+    Events, active days and contamination are insensitive to the choice, so they are the robust units for comparing seasons. Episode counts, and rates built on them, depend on it. The contamination row is in-sample, since most 2015 labels trained the model. Only 2015 was tested.
+- `build_episode_catalog.py` - episode features, lobe-scoped logistic model, and the two-tier episode catalog. **Hard gates are upstream of the model, never features**: tailward only (`dir_x_bx = -1`), E_b < 600 eV (outflow energy window), beta < 0.03 (lobe scope), Te < 500 eV (closes the corridor leak, and a missing `te_med` is admitted rather than rejected). All read the episode median except direction, which comes from the first member. Catalog cut at model prob 0.82 (blind-validated: contamination 1/14 at this threshold) plus prominence >= 0.55. Model features are defined on the beam's dominant cone (`d2o_med`, `asym_dev_dir`), not the parallel cone: the 2015 lobe set is 269/282 parallel beams, and the original para-cone features flipped sign or collapsed for anti-parallel beams, which scored the northern-lobe seasons near zero. Refit 2026-09-19 on the 2015 labels (day-blocked AUC 0.938). The default run applies the frozen model in `candidates/tail2015/analysis/episode_model.joblib` to whichever `--season` is given; `--fit` refits on that season's labels and overwrites the model file.
 - `render_episode_sheets.py` - renders episode representative cutouts and tiles contact sheets from a review-queue CSV.
 - `render_beam_members.py` - per-member cutouts for every catalog beam, one folder per episode under `analysis/beams/tier{n}/<episode_id>/`, refreshes the rep cutouts in `analysis/cutouts/` on the way.
 
-Outputs land in `candidates/tail2015/analysis/`: `beam_catalog_2015.csv` (tier 1 = 89 episodes / tier 2 = 142), `episodes.jsonl`, the blind-validation deck, review-round queues and sheets, and the coldline census (`coldline_final.csv`, 41 members under a six-constant frozen definition).
+Outputs land in `candidates/tail2015/analysis/`: `beam_catalog_2015.csv` (tier 1 = 86 episodes / tier 2 = 145 under the 2026-09-19 refit; the 2026-08-11 catalog with 89 / 142 is kept beside it as `beam_catalog_2015_frozen20260811.csv`), `episodes.jsonl`, the blind-validation deck, review-round queues and sheets, and the coldline census (`coldline_final.csv`, 41 members under a six-constant frozen definition).
+
+### Multi-season runs
+
+- `scan_tail_intervals.py` - builds `events_tail<year>.csv` from L1 state: x_GSM < -8 Re and |y| < |x| on probes a/d/e, merged into hourly intervals per probe-day (reproduces `events_tail2015.csv` exactly). Pad the scan window a month either side of the expected season and let the geometry decide.
+- `group_episodes.py`, `build_episode_catalog.py`, `add_episode_positions.py`, `link_events.py`, `render_beam_members.py`, `render_episode_sheets.py` all take `--season tail<year>` (default `tail2015`) and read/write `candidates/tail<year>/`. Per season: `generate_candidates.py --events events_tail<year>.csv --profile survey --datatype peir --no-cutouts --out candidates/tail<year>`, then the chain above in that order. Generation checkpoints per interval, so rerunning the same command resumes.
+- `pool_seasons.py` - concatenates the per-season catalogs and episodes into `candidates/all/` and writes `coverage.csv`. Coverage is counted in angle-resolved hours (reduced-mode samples with the 50-angle packing inside each processed interval, cached per season in `analysis/coverage_intervals.csv`): in the early seasons fast survey covers only about half of each tail interval, so scanned hours overstate exposure. Tier 1 per 100 angle-resolved hours is the cross-season number.
+- Reduced-mode intervals outside the fast-survey schedule fail in the loader with `no angle-resolved peir samples`, are logged as `[fail]`, and count as unprocessed. Expect a block of them in the padding months.
+
+### Current model and catalog status (2026-09-24)
+
+- The frozen model has 16 inputs: the ten shape features above, log Te and log beta, and four features computed from the snapshot files (`log_iso`, beam-flagged snapshots within 600 s of the episode on the same interval; `duty`, members over snapshots in the episode span; `e_stab`, share of members within 0.12 dex of the median beam energy; `eb_drift`, beam-energy slope in dex per minute). It is fit on every user label from 2011 to 2016. Held-out-season AUC is 0.974 pooled and 0.905 for 2013, the weakest season. Earlier catalogs are kept beside each season's catalog as `_frozen20260919` (direction-invariant model), `_tebeta20260923` (plus Te and beta) and `_shape20260924` (plus the four shape features, before the tier-1 rules below).
+- Tier 1 also requires at least 2 samples and a median beam energy above 40 eV. These are part of the catalog definition, not tuned cuts: a single spin, or a peak in the lowest energy bin (about 34 eV), cannot be a measured beam. Episodes that fail either move to tier 2. Across the 15 seasons this moved 232 of 1,409 tier-1 episodes, 157 of them single spins, leaving 1,177.
+- Tier-1 contamination from the blind decks is roughly 5 to 13% in the quiet seasons, 2011 to 2019, and roughly 25 to 35% in the solar-maximum seasons, 2022 to 2024. These are working estimates, not yet rescored under the tier-1 rules above or under the pending density-ratio and 300 to 600 eV rulings. Every catalog row carries the model probability, so a stricter cut can be applied downstream.
 
 ### Plotting and utility scripts
 
@@ -158,6 +184,7 @@ Outputs land in `candidates/tail2015/analysis/`: `beam_catalog_2015.csv` (tier 1
 - `plot_single_probe.py` - CLI to plot one probe's energy flux for a given date
 - `plot_multi_probe.py` - CLI to plot all probes stacked for a given date
 - `run_beam_pipeline.py` - CLI to run the full per-timestep pipeline with configurable thresholds. Each run writes the per-beam CSV and the histogram / threshold-comparison PNGs unless `--no-plots` is set.
+- `app.py` - tkinter front end for the pipeline, spectrogram, and candidate CLIs (`python scripts/app.py`, no extra deps). Pick a probe and interval by calendar + UT times or from the `events_*.csv` lists, set params from the `strict` / `survey` presets or save your own to `configs/ui_presets.json`, toggle the diagnose dump and threshold-compare sweep, then run. The script log streams into the window and the output figures (wheel to zoom, drag to pan), beams table, and diagnose text load in-app, with a browser for earlier runs in `figures/`. Defaults come from `ClassifierParams` so they can't drift from the code.
 
 Command flags:
         Flag	Type	Default	Description
@@ -187,9 +214,11 @@ Command flags:
 
 - `events_artemyev2020.csv` - literature event list (Artemyev+ 2020 Table S1) used as the labeling batch source
 - `events_tail2015.csv` - the 2015 tail-season scan: 246 tail-region intervals (x_GSM < -8 Re, |y| < |x|), 2,908 probe-hours, probes a/d/e
+- `events_tail<year>.csv` - the other seasons, same columns, written by `scan_tail_intervals.py`
 - `events_2015.csv`, `events_smoketest.csv` - supporting batches
 - `candidates/` - candidate JSONLs + cutouts for the literature batch, `LABELING.md`, frozen label snapshots, `analysis/` outputs (model report, PR curve, catalog, sheets)
 - `candidates/tail2015/` - the 2015 batch and its `analysis/` (episode catalog, blind deck, coldline census)
+- `candidates/tail<year>/` - the other seasons, same layout; `candidates/all/` - pooled catalog, episodes, and coverage
 - `paper/skeleton.md` - working paper outline (JGR Space Physics target)
 - `docs/VARIABLES.md` - reference sheet for every variable: detector features, candidate record fields, model transforms, episode features, catalog columns
 
