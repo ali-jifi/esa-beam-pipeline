@@ -10,13 +10,13 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 import webbrowser
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from tkinter.scrolledtext import ScrolledText
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -103,6 +103,241 @@ def open_path(p: Path):
         webbrowser.open(p.as_uri())
 
 
+# windows xp luna palette
+FACE, WHITE, INK, SEL, TIP = "#ECE9D8", "#FFFFFF", "#000000", "#316AC5", "#FFFFE1"
+PANE, PANEL, HEAD_INK, FIELD_LINE = "#6F8CDE", "#D6DFF7", "#215DC6", "#7F9DB9"
+F = {}
+
+
+def _grad(w, h, a, b, horiz=False):
+    m = Image.linear_gradient("L")
+    m = (m.rotate(90) if horiz else m).resize((w, h))
+    return Image.composite(Image.new("RGB", (w, h), b), Image.new("RGB", (w, h), a), m)
+
+
+def _shape(w, h, r, top, bot, line, outline, inset=None, open_bottom=False, horiz=False):
+    # rounded gradient box, open_bottom drops the bottom edge for tabs
+    hh = h + r + 2 * line if open_bottom else h
+    img = Image.new("RGBA", (w, hh), (0, 0, 0, 0))
+    mask = Image.new("L", (w, hh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, hh - 1), r, fill=255)
+    img.paste(_grad(w, hh, top, bot, horiz), (0, 0), mask)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((0, 0, w - 1, hh - 1), r, outline=outline, width=line)
+    if inset:
+        d.rounded_rectangle((line, line, w - 1 - line, hh - 1 - line), max(r - line, 0), outline=inset, width=2 * line)
+    return img.crop((0, 0, w, h))
+
+
+def panel_header(w, h, s):
+    # task pane header, white to pale blue, rounded top corners on the pane
+    r = round(3 * s)
+    img = Image.new("RGB", (w, h), PANE)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h + r), r, fill=255)
+    img.paste(_grad(w, h, "#FFFFFF", "#C6D3F7", horiz=True), (0, 0), mask)
+    return img
+
+
+def apply_theme(root):
+    s = root.winfo_fpixels("1i") / 96
+    px = lambda n: max(1, round(n * s))
+    line = max(1, int(s))
+    F.update(ui="Tahoma", mono="Lucida Console", scale=s)
+    root.configure(bg=FACE)
+    root.option_add("*Font", (F["ui"], 8))
+    root.option_add("*Text.font", (F["mono"], 8))
+    root.option_add("*TCombobox*Listbox.font", (F["ui"], 8))
+    root.option_add("*TCombobox*Listbox.background", WHITE)
+    root.option_add("*TCombobox*Listbox.selectBackground", SEL)
+    root.option_add("*TCombobox*Listbox.selectForeground", WHITE)
+    st = ttk.Style(root)
+    st.theme_use("clam")
+    st.configure(".", background=FACE, foreground=INK, bordercolor=FIELD_LINE, lightcolor=WHITE, darkcolor=WHITE,
+                 troughcolor=FACE, fieldbackground=WHITE, selectbackground=SEL, selectforeground=WHITE,
+                 font=(F["ui"], 8))
+    imgs = root._xp_imgs = {}
+
+    def el(name, layout_style, images, layout, **kw):
+        ph = [ImageTk.PhotoImage(i, master=root) for i in images[1]]
+        imgs[name] = ph
+        st.element_create(name, "image", ph[0], *[(spec, p) for spec, p in zip(images[0], ph[1:])], **kw)
+        if layout_style:
+            st.layout(layout_style, layout)
+
+    w, r = px(21), px(3)
+    el("XPButton.border", "TButton",
+       (["disabled", "pressed", "active", "focus"],
+        [_shape(w, w, r, "#FFFFFF", "#E6E3D3", line, "#003C74"),
+         _shape(w, w, r, "#F5F4EA", "#F5F4EA", line, "#C9C7BA"),
+         _shape(w, w, r, "#E2E1D9", "#F7F6F2", line, "#003C74"),
+         _shape(w, w, r, "#FFFFFF", "#E6E3D3", line, "#003C74", inset="#FAC55E"),
+         _shape(w, w, r, "#FFFFFF", "#E6E3D3", line, "#003C74", inset="#98B4EB")]),
+       [("XPButton.border", {"sticky": "nswe", "children": [
+           ("Button.padding", {"sticky": "nswe", "children": [("Button.label", {"sticky": "nswe"})]})]})],
+       border=px(5), sticky="nswe")
+    st.configure("TButton", padding=(px(8), px(2)), anchor="center")
+    st.map("TButton", foreground=[("disabled", "#A19F94")])
+
+    tw, th = px(20), px(18)
+
+    def tab(fill, orange):
+        im = _shape(tw, th, px(3), WHITE, fill, line, "#919B9C", open_bottom=True)
+        if orange:
+            d = ImageDraw.Draw(im)
+            d.rectangle((px(2), 0, tw - 1 - px(2), line - 1), fill="#E68B2C")
+            d.rectangle((line, line, tw - 1 - line, 3 * line - 1), fill="#FFC73C")
+        return im
+    el("XPTab.tab", "TNotebook.Tab",
+       (["selected", "active"], [tab("#ECEBE6", False), tab("#FCFCFE", True), tab("#ECEBE6", True)]),
+       [("XPTab.tab", {"sticky": "nswe", "children": [("Notebook.padding", {"side": "top", "sticky": "nswe", "children": [
+           ("Notebook.label", {"side": "top", "sticky": ""})]})]})],
+       border=(px(4), px(4), px(4), 0), sticky="nswe")
+    st.configure("TNotebook", bordercolor="#919B9C", lightcolor="#FCFCFE", darkcolor="#FCFCFE", tabmargins=(px(2), px(2), px(2), 0))
+    st.configure("TNotebook.Tab", padding=(px(10), px(3)))
+    st.map("TNotebook.Tab", expand=[("selected", (px(2), px(2), px(2), 0))])
+
+    b = px(13)
+
+    def box(hover, check):
+        im = Image.new("RGBA", (b + px(6), b), (0, 0, 0, 0))
+        im.paste(_grad(b, b, "#DCDCD7", WHITE), (0, 0))
+        d = ImageDraw.Draw(im)
+        d.rectangle((0, 0, b - 1, b - 1), outline="#1C5180", width=line)
+        if hover:
+            d.rectangle((line, line, b - 1 - line, b - 1 - line), outline="#FAC55E", width=2 * line)
+        if check:
+            d.line([(px(3), px(6)), (px(5), px(8)), (px(9), px(4))], fill="#21A121", width=2 * line)
+        return im
+    el("XPCheck.indicator", None,
+       (["selected active", "selected", "active"], [box(False, False), box(True, True), box(False, True), box(True, False)]),
+       None, sticky="")
+    st.layout("TCheckbutton", [("Checkbutton.padding", {"sticky": "nswe", "children": [
+        ("XPCheck.indicator", {"side": "left", "sticky": ""}),
+        ("Checkbutton.focus", {"side": "left", "sticky": "w", "children": [("Checkbutton.label", {"sticky": "nswe"})]})]})])
+    for cls in ("TCheckbutton", "In.TCheckbutton", "Pane.TCheckbutton"):
+        st.layout(cls, st.layout("TCheckbutton"))
+
+    ah = tkfont.Font(root, font=(F["ui"], 8)).metrics("linespace") + px(2)
+    aw = px(17)
+
+    def arrow(top, bot):
+        im = _shape(aw, ah, px(2), top, bot, line, "#B4C8F6")
+        cx, cy = aw // 2, ah // 2
+        ImageDraw.Draw(im).line([(cx - px(3), cy - px(1)), (cx, cy + px(2)), (cx + px(3), cy - px(1))],
+                                fill="#4D6185", width=2 * line)
+        return im
+    el("XPCombo.arrow", None,
+       (["pressed", "active"], [arrow("#E1EAFE", "#B3C7F5"), arrow("#B8CBF6", "#E1EAFE"), arrow("#FDFFFF", "#C2D6FD")]),
+       None, border=px(3), sticky="ns")
+    st.layout("TCombobox", [("Combobox.field", {"sticky": "nswe", "children": [
+        ("XPCombo.arrow", {"side": "right", "sticky": "ns"}),
+        ("Combobox.padding", {"sticky": "nswe", "children": [("Combobox.textarea", {"sticky": "nswe"})]})]})])
+    st.configure("TCombobox", padding=(px(2), 0))
+    st.map("TCombobox", fieldbackground=[("readonly", WHITE)], selectbackground=[("readonly", WHITE)],
+           selectforeground=[("readonly", INK)])
+    st.configure("TEntry", padding=(px(2), 0), insertcolor=INK)
+
+    hw, hh = px(12), px(18)
+
+    def head(fill, lines):
+        im = Image.new("RGB", (hw, hh), fill)
+        d = ImageDraw.Draw(im)
+        for i, c in enumerate(lines):
+            d.rectangle((0, hh - (3 - i) * line, hw - 1, hh - (2 - i) * line - 1), fill=c)
+        d.line([(hw - 2 * line, px(3)), (hw - 2 * line, hh - px(5))], fill="#C7C5B2", width=line)
+        d.line([(hw - line, px(3)), (hw - line, hh - px(5))], fill=WHITE, width=line)
+        return im
+    el("XPHead.cell", None,
+       (["active"], [head("#EBEADB", ["#E2DECD", "#D6D2C2", "#CBC7B8"]),
+                     head("#FAF9F4", ["#F9B119", "#F8A900", "#E59700"])]),
+       None, border=(px(2), px(2), px(3), px(4)), sticky="nswe")
+    st.layout("Treeview.Heading", [("XPHead.cell", {"sticky": "nswe", "children": [
+        ("Treeheading.padding", {"sticky": "nswe", "children": [("Treeheading.text", {"sticky": "w"})]})]})])
+    st.configure("Treeview.Heading", padding=(px(5), px(2)))
+    st.configure("Treeview", background=WHITE, fieldbackground=WHITE, rowheight=px(17), bordercolor=FIELD_LINE)
+    st.map("Treeview", background=[("selected", SEL)], foreground=[("selected", WHITE)])
+
+    for o in ("Vertical", "Horizontal"):
+        st.configure(f"{o}.TScrollbar", background="#C1D3FB", troughcolor="#F7F6F0", bordercolor="#98B1E6",
+                     lightcolor="#E1EAFE", darkcolor="#A8BEF5", arrowcolor="#4D6185", gripcount=4, arrowsize=px(15))
+        st.map(f"{o}.TScrollbar", background=[("pressed", "#A8BEF5"), ("active", "#D7E3FE")])
+    st.configure("Sash", sashthickness=px(5), gripcount=0)
+
+    st.configure("Pane.TFrame", background=PANE)
+    st.configure("Pane.TLabel", background=PANE, foreground=WHITE, font=(F["ui"], 8, "bold"))
+    st.configure("Pane.TCheckbutton", background=PANE, foreground=WHITE, font=(F["ui"], 8, "bold"))
+    st.configure("Panel.TFrame", background=PANEL, relief="solid", borderwidth=line, bordercolor=WHITE)
+    for cls in ("TFrame", "TLabel", "TCheckbutton"):
+        st.configure(f"In.{cls}", background=PANEL)
+    for cls in ("Pane", "In"):
+        bg = PANE if cls == "Pane" else PANEL
+        st.map(f"{cls}.TCheckbutton", background=[("active", bg)])
+
+
+def walk(w):
+    for c in w.winfo_children():
+        yield c
+        yield from walk(c)
+
+
+class Panel(ttk.Frame):
+    # xp task pane box, gradient header with bold blue title, children grid into the body
+    def __init__(self, master, text, **kw):
+        font = tkfont.Font(master, font=(F["ui"], 8, "bold"))
+        self.head_h = font.metrics("linespace") + round(10 * F["scale"])
+        pad = round(8 * F["scale"])
+        top = self.head_h + pad // 2
+        super().__init__(master, style="Panel.TFrame", padding=(pad, top, pad, pad // 2), **kw)
+        self.caption, self._font, self._img = text[:1].upper() + text[1:], font, None
+        self.head = tk.Canvas(self, height=self.head_h, highlightthickness=0, bd=0, bg=PANE)
+        # place is measured from inside the ttk padding, so step back out to the frame edge
+        self.head.place(x=-pad, y=-top, relwidth=1, width=2 * pad)
+        self.head.bind("<Configure>", self._draw)
+
+    def _draw(self, e):
+        self._img = ImageTk.PhotoImage(panel_header(max(e.width, 1), self.head_h, F["scale"]), master=self)
+        self.head.delete("all")
+        self.head.create_image(0, 0, image=self._img, anchor="nw")
+        self.head.create_text(round(12 * F["scale"]), self.head_h // 2, text=self.caption, anchor="w",
+                              font=self._font, fill=HEAD_INK)
+
+
+def skin(root):
+    # restyle plain frames, labels, and checkboxes by where they sit, pane or panel body
+    cap = lambda s: s[:1].upper() + s[1:]
+    for w in walk(root):
+        if not isinstance(w, ttk.Widget):
+            continue
+        cls = w.winfo_class()
+        if cls in ("TButton", "TCheckbutton") and len(str(w.cget("text"))) > 1:
+            w.configure(text=cap(str(w.cget("text"))))
+        if cls == "TLabel" and len(str(w.cget("text"))) > 2:
+            w.configure(text=cap(str(w.cget("text"))))
+        if cls not in ("TFrame", "TLabel", "TCheckbutton") or str(w.cget("style")):
+            continue
+        p, ctx = w.master, None
+        while p is not None and ctx is None:
+            if isinstance(p, Panel):
+                ctx = "In"
+            elif isinstance(p, ttk.Frame) and str(p.cget("style")) == "Pane.TFrame":
+                ctx = "Pane"
+            p = p.master
+        if ctx:
+            w.configure(style=f"{ctx}.{cls}")
+
+
+def text_box(parent, **kw):
+    # xp edit box, thin blue-gray rule, themed scrollbar
+    f = tk.Frame(parent, bg=WHITE, highlightthickness=1, highlightbackground=FIELD_LINE, highlightcolor=FIELD_LINE)
+    t = tk.Text(f, relief="flat", bd=0, bg=WHITE, highlightthickness=0, padx=4, pady=2, **kw)
+    sb = ttk.Scrollbar(f, orient="vertical", command=t.yview)
+    t.configure(yscrollcommand=sb.set)
+    sb.pack(side="right", fill="y")
+    t.pack(side="left", fill="both", expand=True)
+    return f, t
+
+
 class Tip:
     # hover tip, delayed show, hides on leave or click, polls the pointer while up
     def __init__(self, w, text):
@@ -122,7 +357,8 @@ class Tip:
         self.top = tk.Toplevel(self.w)
         self.top.wm_overrideredirect(True)
         self.top.wm_geometry(f"+{self.w.winfo_rootx()}+{self.w.winfo_rooty() + self.w.winfo_height() + 4}")
-        tk.Label(self.top, text=self.text, bg="#ffffe0", relief="solid", bd=1, padx=4, pady=2).pack()
+        tk.Label(self.top, text=self.text, bg=TIP, fg=INK, font=(F["ui"], 8), relief="solid", bd=1,
+                 padx=3, pady=1).pack()
         self.job = self.w.after(300, self._watch)
 
     def _watch(self):
@@ -155,6 +391,7 @@ class CalendarPopup(tk.Toplevel):
         super().__init__(master)
         self.var = var
         self.title("pick date")
+        self.configure(bg=FACE)
         self.resizable(False, False)
         self.transient(master.winfo_toplevel())
         try:
@@ -195,8 +432,8 @@ class CalendarPopup(tk.Toplevel):
 
 
 def row(parent, r, label, widget, tip=None, col=0):
-    ttk.Label(parent, text=label).grid(row=r, column=2 * col, sticky="w", padx=4, pady=2)
-    widget.grid(row=r, column=2 * col + 1, sticky="w", padx=4, pady=2)
+    ttk.Label(parent, text=label[:1].upper() + label[1:] + ":").grid(row=r, column=2 * col, sticky="w", padx=4, pady=1)
+    widget.grid(row=r, column=2 * col + 1, sticky="w", padx=4, pady=1)
     if tip:
         Tip(widget, tip)
 
@@ -208,10 +445,10 @@ def date_field(parent, var):
     return f
 
 
-class IntervalPicker(ttk.LabelFrame):
+class IntervalPicker(Panel):
     # probe + start/end date and time, or a known interval from an events csv
     def __init__(self, master, events: dict):
-        super().__init__(master, text="interval")
+        super().__init__(master, "interval")
         self.events = events
         self.rows = []
         self.probe = tk.StringVar(value="a")
@@ -268,7 +505,7 @@ class IntervalPicker(ttk.LabelFrame):
 
 class Runner:
     # runs a script in a subprocess, streams its output into the log
-    def __init__(self, root, log: ScrolledText, status: tk.StringVar):
+    def __init__(self, root, log: tk.Text, status: tk.StringVar):
         self.root, self.log, self.status = root, log, status
         self.proc, self.q, self.on_done, self.cancelled = None, queue.Queue(), None, False
 
@@ -325,8 +562,7 @@ class Runner:
 class ImageView(tk.Canvas):
     # fits by default, wheel zooms at the cursor, drag pans, double click refits
     def __init__(self, master):
-        super().__init__(master, highlightthickness=0,
-                         bg=ttk.Style().lookup("TFrame", "background") or "#f0f0f0")
+        super().__init__(master, bg=WHITE, highlightthickness=1, highlightbackground=FIELD_LINE)
         self.img, self.photo, self.scale, self.fit_scale, self.ox, self.oy = None, None, 1.0, 1.0, 0.0, 0.0
         self.fitted, self._job, self._from = True, None, None
         self.bind("<Configure>", self._resized)
@@ -406,21 +642,21 @@ class ResultsPanel(ttk.Frame):
         self.figs, self.run_paths = {}, []
         top = ttk.Frame(self)
         top.pack(fill="x", pady=2)
-        ttk.Label(top, text="previous runs").pack(side="left")
-        self.runs = ttk.Combobox(top, state="readonly", width=44)
-        self.runs.pack(side="left", padx=4)
+        # buttons pack first so a narrow window shrinks the dropdowns, not the buttons
+        ttk.Label(top, text="previous runs", width=12).pack(side="left")
+        ttk.Button(top, text="refresh", command=self.refresh_runs).pack(side="right")
+        self.runs = ttk.Combobox(top, state="readonly", width=10)
+        self.runs.pack(side="left", padx=4, fill="x", expand=True)
         self.runs.bind("<<ComboboxSelected>>", lambda e: self.load_prefix(self.run_paths[self.runs.current()]))
-        ttk.Button(top, text="refresh", command=self.refresh_runs).pack(side="left")
         mid = ttk.Frame(self)
         mid.pack(fill="x", pady=2)
-        ttk.Label(mid, text="figure").pack(side="left")
-        self.fig = ttk.Combobox(mid, state="readonly", width=32)
-        self.fig.pack(side="left", padx=4)
+        ttk.Label(mid, text="figure", width=12).pack(side="left")
+        ttk.Button(mid, text="fit", command=lambda: self.view.fit()).pack(side="right")
+        ttk.Button(mid, text="open folder", command=lambda: self._open(True)).pack(side="right", padx=4)
+        ttk.Button(mid, text="open", command=lambda: self._open(False)).pack(side="right")
+        self.fig = ttk.Combobox(mid, state="readonly", width=10)
+        self.fig.pack(side="left", padx=4, fill="x", expand=True)
         self.fig.bind("<<ComboboxSelected>>", self.show_fig)
-        ttk.Button(mid, text="open", command=lambda: self._open(False)).pack(side="left")
-        ttk.Button(mid, text="open folder", command=lambda: self._open(True)).pack(side="left", padx=4)
-        ttk.Button(mid, text="fit", command=lambda: self.view.fit()).pack(side="left")
-        ttk.Label(mid, text="wheel zooms, drag pans, double click refits").pack(side="right", padx=4)
         pane = ttk.PanedWindow(self, orient="vertical")
         pane.pack(fill="both", expand=True)
         # ttk panes size children by request so the empty canvas starts tiny, give it 70% once
@@ -431,7 +667,7 @@ class ResultsPanel(ttk.Frame):
         tabs = ttk.Notebook(pane)
         pane.add(tabs, weight=1)
         tf = ttk.Frame(tabs)
-        tabs.add(tf, text="table")
+        tabs.add(tf, text="Table")
         self.tree = ttk.Treeview(tf, show="headings")
         ys = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
         xs = ttk.Scrollbar(tf, orient="horizontal", command=self.tree.xview)
@@ -439,8 +675,8 @@ class ResultsPanel(ttk.Frame):
         ys.pack(side="right", fill="y")
         xs.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
-        self.text = ScrolledText(tabs, font="TkFixedFont", height=8)
-        tabs.add(self.text, text="diagnose")
+        df, self.text = text_box(tabs, height=8)
+        tabs.add(df, text="Diagnose")
 
     def refresh_runs(self):
         pngs = sorted(FIGURES.glob("*/*_overview.png")) + sorted(FIGURES.glob("*.png"))
@@ -502,9 +738,11 @@ class ResultsPanel(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         cols = list(dict.fromkeys(k for r in rows for k in r))
         self.tree["columns"] = cols
+        font = tkfont.Font(self, font=ttk.Style().lookup("Treeview.Heading", "font") or (F["ui"], 8))
         for c in cols:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=max(70, 8 * len(c)), stretch=False)
+            # text plus heading padding and cell border
+            self.tree.column(c, width=max(70, font.measure(c) + round(16 * F["scale"])), stretch=False)
         for r in rows:
             self.tree.insert("", "end", values=[f"{v:.4g}" if isinstance(v, float) else v
                                                 for v in (r.get(c, "") for c in cols)])
@@ -519,36 +757,57 @@ class App(tk.Tk):
         super().__init__()
         self.title("esa_plotting")
         self.geometry("1500x950")
+        apply_theme(self)
         self.defaults = classifier_defaults()
         self.events = load_events()
         self.presets = builtin_presets(self.defaults) | load_user_presets()
         self.data_dir = tk.StringVar(value=os.environ.get("THM_DATA_DIR") or str(ROOT / "data"))
         self.status = tk.StringVar(value="idle")
+        self._page_syncs, self._scrollers = [], []
 
-        top = ttk.Frame(self, padding=4)
+        # xp address bar
+        top = ttk.Frame(self, padding=(6, 4))
         top.pack(fill="x")
-        ttk.Label(top, text="data dir").pack(side="left")
-        e = ttk.Entry(top, textvariable=self.data_dir, width=70)
-        e.pack(side="left", padx=4)
+        ttk.Label(top, text="Data dir", foreground="#7F7C70").pack(side="left")
+        e = ttk.Entry(top, textvariable=self.data_dir, width=80)
+        e.pack(side="left", padx=4, fill="x", expand=True)
         Tip(e, "where themis cdfs live, missing files download from the themis server on first run")
         ttk.Button(top, text="browse", command=self.pick_data_dir).pack(side="left")
-        ttk.Label(top, textvariable=self.status).pack(side="right", padx=8)
+        # xp status bar
+        bar = tk.Frame(self, bg=FACE)
+        bar.pack(side="bottom", fill="x")
+        tk.Label(bar, textvariable=self.status, bg=FACE, anchor="w", relief="sunken", bd=1, padx=4,
+                 width=30).pack(side="left", padx=(2, 0), pady=2)
+        tk.Label(bar, text="Figure: wheel zooms, drag pans, double click refits", bg=FACE, anchor="w",
+                 relief="sunken", bd=1, padx=4).pack(
+            side="left", fill="x", expand=True, padx=2, pady=2)
 
         vpane = ttk.PanedWindow(self, orient="vertical")
         vpane.pack(fill="both", expand=True)
+        vpane.bind("<Configure>", lambda e: (vpane.sashpos(0, int(e.height * 0.8)), vpane.unbind("<Configure>"))
+                   if e.height > 100 else None)
         hpane = ttk.PanedWindow(vpane, orient="horizontal")
         vpane.add(hpane, weight=4)
         self.tabs = ttk.Notebook(hpane)
         hpane.add(self.tabs, weight=0)
         self.results = ResultsPanel(hpane)
         hpane.add(self.results, weight=1)
-        self.log = ScrolledText(vpane, height=10, font="TkFixedFont")
-        vpane.add(self.log, weight=1)
+        lf, self.log = text_box(vpane, height=10)
+        vpane.add(lf, weight=1)
         self.runner = Runner(self, self.log, self.status)
 
         self.build_pipeline_tab()
         self.build_spectro_tab()
         self.build_cand_tab()
+        skin(self)
+        self.update_idletasks()
+        for sync in self._page_syncs:
+            sync()
+        self.minsize(960, 600)
+        self.bind_all("<MouseWheel>", self._wheel, add="+")
+        for t in self.tabs.tabs():
+            txt = self.tabs.tab(t, "text")
+            self.tabs.tab(t, text=txt[:1].upper() + txt[1:])
         self.results.refresh_runs()
         self.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -567,18 +826,17 @@ class App(tk.Tk):
 
     def run_buttons(self, parent, cmd):
         bf = ttk.Frame(parent)
-        bf.pack(fill="x", pady=6)
+        bf.pack(fill="x", pady=10)
         ttk.Button(bf, text="run", command=cmd).pack(side="left")
         ttk.Button(bf, text="cancel", command=self.runner.cancel).pack(side="left", padx=4)
 
     def build_pipeline_tab(self):
-        f = ttk.Frame(self.tabs, padding=6)
-        self.tabs.add(f, text="beam pipeline")
+        f = self.page("beam pipeline")
         self.pp_int = IntervalPicker(f, self.events)
         self.pp_int.pack(fill="x")
 
         pf = ttk.Frame(f)
-        pf.pack(fill="x", pady=4)
+        pf.pack(fill="x", pady=8)
         ttk.Label(pf, text="preset").pack(side="left")
         self.preset = ttk.Combobox(pf, values=list(self.presets), state="readonly", width=18)
         self.preset.pack(side="left", padx=4)
@@ -586,26 +844,26 @@ class App(tk.Tk):
         ttk.Button(pf, text="save as", command=self.save_preset).pack(side="left")
 
         self.pvars = {k: tk.StringVar() for k, *_ in EXTRA + PARAMS}
-        basic = ttk.LabelFrame(f, text="parameters")
+        basic = Panel(f, "parameters")
         basic.pack(fill="x")
         for r, (key, _, label, tip, _) in enumerate(EXTRA + [p for p in PARAMS if p[4]]):
             row(basic, r, label, ttk.Entry(basic, textvariable=self.pvars[key], width=8), tip)
 
         self.show_adv = tk.BooleanVar()
         ttk.Checkbutton(f, text="show advanced", variable=self.show_adv, command=self.toggle_adv).pack(anchor="w", pady=2)
-        self.adv = ttk.LabelFrame(f, text="advanced")
+        self.adv = Panel(f, "advanced")
         for i, (key, _, label, tip, _) in enumerate([p for p in PARAMS if not p[4]]):
             row(self.adv, i // 2, label, ttk.Entry(self.adv, textvariable=self.pvars[key], width=8), tip, col=i % 2)
 
-        self.opt = ttk.LabelFrame(f, text="options")
-        self.opt.pack(fill="x", pady=4)
+        self.opt = Panel(f, "options")
+        self.opt.pack(fill="x", pady=(8, 0))
         self.tcv = tk.StringVar(value="1.0 1.2 1.5 2.0")
         row(self.opt, 0, "threshold compare R", ttk.Entry(self.opt, textvariable=self.tcv, width=20),
             "coherent R values for the threshold-comparison plot, space separated")
         self.no_plots = tk.BooleanVar()
-        ttk.Checkbutton(self.opt, text="skip plots", variable=self.no_plots).grid(row=1, column=0, columnspan=2, sticky="w", padx=4)
+        ttk.Checkbutton(self.opt, text="skip plots", variable=self.no_plots).grid(row=1, column=0, sticky="w", padx=4)
         self.diag = tk.BooleanVar()
-        ttk.Checkbutton(self.opt, text="diagnose dump", variable=self.diag).grid(row=2, column=0, columnspan=2, sticky="w", padx=4)
+        ttk.Checkbutton(self.opt, text="diagnose dump", variable=self.diag).grid(row=1, column=1, sticky="w", padx=4)
         self.diag0, self.diag1 = tk.StringVar(), tk.StringVar()
         df = ttk.Frame(self.opt)
         ttk.Entry(df, textvariable=self.diag0, width=6).pack(side="left")
@@ -619,7 +877,7 @@ class App(tk.Tk):
 
     def toggle_adv(self):
         if self.show_adv.get():
-            self.adv.pack(fill="x", before=self.opt)
+            self.adv.pack(fill="x", pady=(8, 0), before=self.opt)
         else:
             self.adv.pack_forget()
 
@@ -671,9 +929,8 @@ class App(tk.Tk):
         self.runner.start(cmd, self.env(), lambda rc: (self.results.load_prefix(prefix), self.results.refresh_runs()))
 
     def build_spectro_tab(self):
-        f = ttk.Frame(self.tabs, padding=6)
-        self.tabs.add(f, text="spectrogram")
-        g = ttk.LabelFrame(f, text="ion eflux")
+        f = self.page("spectrogram")
+        g = Panel(f, "ion eflux")
         g.pack(fill="x")
         self.sp_date = tk.StringVar(value="2019-05-01")
         row(g, 0, "date", date_field(g, self.sp_date), "one full day")
@@ -704,12 +961,11 @@ class App(tk.Tk):
         self.runner.start(cmd, self.env(), lambda rc: (self.results.load_prefix(out), self.results.refresh_runs()))
 
     def build_cand_tab(self):
-        f = ttk.Frame(self.tabs, padding=6)
-        self.tabs.add(f, text="candidates")
+        f = self.page("candidates")
         self.cd_int = IntervalPicker(f, self.events)
         self.cd_int.pack(fill="x")
-        g = ttk.LabelFrame(f, text="generation")
-        g.pack(fill="x", pady=4)
+        g = Panel(f, "generation")
+        g.pack(fill="x", pady=(10, 0))
         self.cd_tag = tk.StringVar(value="unknown")
         row(g, 0, "interval tag", ttk.Combobox(g, textvariable=self.cd_tag, state="readonly", width=12,
                                                values=["beam_period", "plasma_sheet", "unknown"]),
@@ -753,6 +1009,42 @@ class App(tk.Tk):
             cmd.append("--no-cutouts")
         jsonl = out / f"{probe}_{trange[0].replace('/', 'T').replace(':', '')}_{prof}.jsonl"
         self.runner.start(cmd, self.env(), lambda rc: self.results.load_candidates(jsonl))
+
+    def page(self, text):
+        # task pane page that scrolls when the window is too short for it
+        outer = ttk.Frame(self.tabs, style="Pane.TFrame")
+        self.tabs.add(outer, text=text)
+        cv = tk.Canvas(outer, bg=PANE, highlightthickness=0, bd=0, height=200, yscrollincrement=20)
+        sb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        cv.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(cv, padding=10, style="Pane.TFrame")
+        win = cv.create_window(0, 0, window=inner, anchor="nw")
+
+        def sync(_=None):
+            cv.configure(width=inner.winfo_reqwidth(), scrollregion=(0, 0, inner.winfo_reqwidth(), inner.winfo_reqheight()))
+        inner.bind("<Configure>", sync)
+        cv.bind("<Configure>", lambda e: (cv.itemconfigure(win, width=e.width), sync()))
+        self._page_syncs.append(sync)
+        self._scrollers.append(cv)
+        return inner
+
+    def _wheel(self, e):
+        # wheel over a task pane scrolls it, combos keep their own wheel handling
+        try:
+            w = e.widget if not isinstance(e.widget, str) else self.nametowidget(e.widget)
+        except (KeyError, tk.TclError):
+            return
+        if isinstance(w, ttk.Combobox):
+            return
+        while w is not None:
+            if w in self._scrollers:
+                top, bot = w.yview()
+                if top > 0 or bot < 1:
+                    w.yview_scroll(-1 if e.delta > 0 else 1, "units")
+                return
+            w = w.master
 
     def close(self):
         self.runner.cancel()
