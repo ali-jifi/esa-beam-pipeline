@@ -43,6 +43,8 @@ Label state: 66 positive, 0 negative, 20 unlabeled. The known event-boundary fal
 
 *zero duration = single-sample episode (one 3.2 s snapshot).
 
+All energies in this file are measured (instrument frame) unless marked otherwise. True energies are higher by qΦ; see "Beam energies in the true frame" below.
+
 Beam energy bands: <100 eV: 52 episodes, 100–200 eV: 20, 200–300 eV: 10, 300–500 eV: 4, >500 eV: 0. The population is dominantly sub-200 eV — squarely ionospheric.
 
 ### Plasma context (episode medians)
@@ -63,7 +65,7 @@ Total tier-1 beam time: **2.37 h of 2,908 scanned probe-hours ≈ 0.08%** of tai
 
 Merging tier-1 episodes across probes by time proximity gives **8 distinct physical structures** at 30–60 min gap tolerance (10 at 10 min, where the two hour-scale structures each split once):
 
-| event | span | episodes | probes | E_b range (eV) |
+| event | span | episodes | probes | E_b range (eV, measured) |
 |---|---|---|---|---|
 | 11-13 14:08 | 21 min | 11 | d, e | 33–99 |
 | 12-06 11:03 | single | 1 | d | 442 |
@@ -75,6 +77,24 @@ Merging tier-1 episodes across probes by time proximity gives **8 distinct physi
 | 12-31 11:54 | 75 min | 25 | a, d, e | 57–441 |
 
 Two structures are simultaneous three-probe detections; five of eight are multi-probe. The two longest (12-20 11:21, 12-31 11:54) are hour-scale persistent structures containing most of the catalog's episodes — episode count and physical event count are very different measures of occurrence. Against the 2026-08-11 catalog, the 12-21 16:49 single-episode structure and probe a's member of the 12-31 08:32 conjunction fell to tier 2.
+
+## Beam energies in the true frame (added 2026-10-17)
+
+Ions lose qΦ climbing the positive spacecraft potential, so the true energy is E_b + qΦ (singly charged; method and caveats in the README section "Spacecraft potential correction"). The numbers below use the current pooled catalog (`candidates/all/beam_catalog_all.csv`, tail2015). It has **89 tier-1 episodes** under the 2026-09-24 model and tier-1 rules, not the 86 of the 2026-09-19 tables above.
+
+| quantity | min | p25 | median | mean | p75 | max |
+|---|---|---|---|---|---|---|
+| Φ (V) | 14.1 | 22.9 | 26.4 | 27.4 | 30.1 | 45.8 |
+| E_b measured (eV) | 46 | 58 | 99 | 142 | 171 | 583 |
+| E_b + qΦ (eV) | 71 | 86 | 126 | 169 | 204 | 624 |
+| per-beam 1σ error (eV) | 9.3 | 11.1 | 17.5 | 22.8 | 29.5 | 46.9 |
+
+| band | <100 eV | 100–200 | 200–300 | 300–500 | >500 |
+|---|---|---|---|---|---|
+| measured | 48 | 25 | 12 | 3 | 1 |
+| true frame | 25 | 37 | 12 | 14 | 1 |
+
+Median E_b/Te goes from 2.87 measured to 3.25 corrected (Te is already potential-corrected). In the true frame 62 of 89 beams (70%) are still below 200 eV, so the population stays dominantly sub-200 eV. The 40 eV tier-1 floor stays on measured energy and corresponds to about 66 eV true at the 2015 median potential. 86 of 89 beams have Φ ≤ 0.5 E_b (`fit_ok`), none has Φ > 0.8 E_b, and none is in Earth's shadow.
 
 ## Tier 2 — 145 episodes (review tier)
 

@@ -33,7 +33,7 @@ Supporting structure:
 
 Eight physical structures at 30–60 min merge tolerance (see RESULTS_SURFACE.md; nine under the 2026-08-11 catalog), five multi-probe, two simultaneous on all three probes:
 
-- **12-31 08:33 triple conjunction**: 5 members (2 tier-1 + 3 tier-2 under the refit; 4 + 1 under the 2026-08-11 model) across a/d/e, core three within 64 s, total duration bounded at ~4–6 min. Catalog beam energies are 171 (d) / 295 (e) / 454 (a) eV — but those are three *different times* spanning that 64 s, and each probe's energy moves within the event: probe a also detects 175 eV at 08:33:01 (sub-threshold, not in catalog) and probe e runs 295 → 57 → 441 eV. The spread is confounded between probe position and time and is **not** a per-probe ordering. **Cross-probe time-of-flight is not resolvable at survey cadence** (corrected 2026-08-17): measured member separations are ΔX 0.34, ΔY 0.06, ΔZ 0.97 RE, so the field-aligned baseline (ΔX, since B ≈ ±X in the lobe) implies only ≈10 s of arrival spread against a ~100 s peif sampling interval. Dispersion analysis requires peir (3.2 s). Its exit episode is the catalog's known false positive — the event-boundary failure mode illustrated inside the showcase event.
+- **12-31 08:33 triple conjunction**: 5 members (2 tier-1 + 3 tier-2 under the refit; 4 + 1 under the 2026-08-11 model) across a/d/e, core three within 64 s, total duration bounded at ~4–6 min. Catalog beam energies are 171 (d) / 295 (e) / 454 (a) eV measured, 201 / 324 / 487 eV in the true frame (Φ 29–34 V) — but those are three *different times* spanning that 64 s, and each probe's energy moves within the event: probe a also detects 175 eV at 08:33:01 (sub-threshold, not in catalog) and probe e runs 295 → 57 → 441 eV. The spread is confounded between probe position and time and is **not** a per-probe ordering. **Cross-probe time-of-flight is not resolvable at survey cadence** (corrected 2026-08-17): measured member separations are ΔX 0.34, ΔY 0.06, ΔZ 0.97 RE, so the field-aligned baseline (ΔX, since B ≈ ±X in the lobe) implies only ≈10 s of arrival spread against a ~100 s peif sampling interval. Dispersion analysis requires peir (3.2 s). Its exit episode is the catalog's known false positive — the event-boundary failure mode illustrated inside the showcase event.
 - **12-20 11:21 structure**: 62 min, 39 episodes, all three probes — the Artemyev+ 2020 Figure 1 day, recovered independently at 30× time resolution.
 - **12-31 11:59 structure**: 75 min, 25 episodes, all three probes — the persistent structure that exposed the flux_z baseline-absorption failure.
 
@@ -61,10 +61,25 @@ Discipline: the type specimen (e_2013-08-24 123020) is held out and never counte
 
 The earthward exclusion is a scope restriction, not physics — bounce returns mean earthward cold beams can be genuine outflow (tailward-only gives a clean sample at the cost of the bounce population).
 
-## 6. Quotability rules (binding)
+## 6. Spacecraft potential and the energy frame (added 2026-10-17)
+
+The positive spacecraft potential is large in the lobe, so the energy frame is a results-level issue, not a footnote. The method, flags and full caveat list are in the README section "Spacecraft potential correction". Columns are documented in VARIABLES.md §5.
+
+- **Size**: in the 2011–2016 tier-1 beams (303), Φ has a median of 30 V (16–47 V, 5th–95th percentile), a median of 0.3 of measured E_b and 0.5 in the 40–60 eV bin. The correction is added per spin, because Φ moves by a median of 8.5 V within one beam.
+- **Frame rules**: detection gates (40 eV floor, 600 eV window) and model features stay in the measured frame, because detection happens there. Physics, E_b/Te and all cross-season or cross-probe comparisons use E_b + qΦ. The 40 eV floor is about 70 eV true at the median potential, and each beam carries its own bound (`eb_floor_true`). Beams below the barrier are not recovered.
+- **Season comparison is dominated by truncation**: the gap in true-frame E_b between 2011–13 and 2014–16 widens after correction, but disappears above a common 90 eV true floor (p = 0.37). 2011–13 has the higher floor (74 vs 67 eV median). A truncated regression on `eb_floor_true` would settle it and hasn't been built.
+- **Probe A's higher potential is a density effect**: A sits in thinner plasma, and at the same density it isn't higher than D or E (Φ ≈ 4.5 − 37.4·log₁₀ne, R² 0.55).
+- **Open caveat, era offset in Φ**: about 6 V of the 11 V raw era gap in Φ remains at the same density, F10.7 doesn't explain it, and it isn't a clean step (2013 D/E +8/+13 V, 2016 −4 to −7 V). It may be instrumental and is unresolved. Carry it as a per-era systematic of about σ_Φ = 5 V.
+- **Te**: 28% of tier-1 beams have Te < Φ, the subset where the electron moment is most exposed to photoelectron and bin-width bias.
+- **Line width**: below ~100 eV the width is instrument-limited. Only an upper bound kT_∥ ≲ 6 eV is robust, well below the 10–20 eV oxygen moment temperature of Artemyev et al. 2020.
+- **Artemyev et al. 2020 frame**: unstated in the paper. Its event criteria involve no energy, so recall against Table S1 is frame-free. Its W_O is a bulk flow energy from moments, not a peak energy. Anchor check, 2015-12-20 THEMIS-D: tier-1 corrected E_b median ≈ 109 eV against ≈ 210 eV implied by O+ at the 50 km/s of their Fig. 1h. That is within a factor of 2, and ambiguous because Fig. 1h may be a proton-assumed moment.
+
+## 7. Quotability rules (binding)
 
 - Separation/contamination numbers: blind deck only (AUC 0.969, 7% for the 2026-08-11 model; 0.975 and 0/4 per episode under the refit, dedup pending). Spot-check numbers appear only as the threshold-setting narrative.
 - Model performance: lobe-scoped only (day-blocked AUC 0.938 refit / 0.956 closeout). Never pooled.
 - Occurrence: physical events (8), not episodes (86), for any rate-of-nature claim; episodes are pipeline segments.
 - Coldline: census + case-study framing; no origin claim; type specimen excluded from evidence.
+- Energies: quote E_b + qΦ ± `e_b_corr_err` for physics, and say which frame every energy is in. Gates and the 40 eV floor are measured-frame by definition. Velocities only for both H+ and O+, never a species from ne/ni alone. Line width only as kT_∥ ≲ 6 eV.
+- Cross-season or cross-probe energy comparisons: true frame, above a common true-frame floor or in a truncated fit, with the Φ era offset stated as a systematic.
 - Limitations to state: single labeler, intra-rater consistency n = 1, tailward-only scope, 2015 Oct–Dec coverage (verified complete for 2015).

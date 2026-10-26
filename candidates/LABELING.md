@@ -3,6 +3,12 @@
 Codified 2026-07-31 after two disagreement-review rounds, so the standard
 survives the labeler. Applies to all `candidates/*.jsonl` records.
 
+Energy frame (note added 2026-10-17): every energy in this standard (E_b,
+the 250/300 eV coldline edges, the 581-1010 eV lines, keV families) is
+the measured energy, as shown on the cutouts. The true energy is higher by
+the spacecraft potential, about 30 V in the lobe (README, "Spacecraft
+potential correction"). Rules and resolved labels are unchanged by this.
+
 ## class axes
 
 Beam-ness (morphology) and population (context) are independent axes.

@@ -30,9 +30,9 @@ Computed by `extract_features()`, one value per timestep.
 | para_to_omni | – | para / omni flux ratio at e_beam |
 | energy_ratio | – | bulk flow energy / thermal energy from moments (dead in scoring, w = 0) |
 | peak_prom | dex | prominence of the narrow spectral line inside the coherent run (0.3 = 2× above local baseline) |
-| peak_width | bins | FWHM of that line |
+| peak_width | bins | width of that line at half its log10 prominence (scipy find_peaks), not a linear-flux FWHM |
 | e_line | eV | energy of the line = **E_b**, the beam energy |
-| de_line | eV | line FWHM = **ΔE** |
+| de_line | eV | line width = **ΔE**, peak_width mapped to eV by interpolating between bins; near the bin width below ~100 eV |
 | eb_over_de | – | E_b / ΔE, monochromaticity; logged only, never gated |
 | r_beam | – | **R**: flux-weighted mean of dominant cone / perp cone over the run bins |
 | pa_max_ratio | – | max(para) / max(anti) over run bins, reported dominant/sub (≥ 1) |
@@ -133,6 +133,22 @@ Beam-flagged snapshots grouped by: gap ≤ 60 s, same direction, adjacent member
 | rep_id | member with the highest beam_score (used for cutouts) |
 | member_ids | all member candidate_ids |
 
+Potential sidecar, `analysis/episode_scpot.jsonl` (`add_episode_scpot.py`, run after `add_episode_positions.py`), joined into `candidates/all/beam_catalog_all.csv` and `episodes_all.csv` by `pool_seasons.py`. `e_b_med` stays the measured value. All gates and model features use measured energy; these columns are for physics and comparisons. Episodes join on (episode_id, rep_id). The catalog has no rep_id, so an episode_id shared by two episodes is left blank there. See the README section "Spacecraft potential correction" for the method and caveats.
+
+| field | meaning |
+|---|---|
+| scpot_med / scpot_min / scpot_max | member (per-spin) s/c potential stats, V, from ESA L2 `peir_sc_pot` (EFI-derived) |
+| scpot_frac | scpot_med / e_b_med |
+| e_b_corr_med / e_b_corr_min / e_b_corr_max | stats of per-spin E_b + qΦ, eV, singly charged |
+| e_b_corr_err | per-beam 1-sigma error, eV: sqrt((f·e_b_med)² + σ_Φ²), bin rounding (f = 0.17 below 290 eV, 0.15 to 366 eV, 0.10 to 514 eV, 0.08 above, from the local bin gaps) plus potential calibration (σ_Φ default 5 V) |
+| eb_floor_true | 40 eV + scpot_med, the true-frame value of the tier-1 floor for this beam |
+| eb_over_te_meas / eb_over_te_corr | member median of E_b/Te, measured and corrected E_b (Te from L2 moments, already potential-corrected) |
+| sheath_flag | scpot_frac > 0.8, the sheath bends trajectories, so direction is unreliable |
+| fit_ok | scpot_frac ≤ 0.5, use in quantitative fits |
+| r_yz / eclipse_flag | √(y²+z²) at episode midpoint, RE; in Earth's shadow when x < 0 and r_yz < 1.1 (EFI potential and spin phase invalid) |
+| rep_id | representative member, part of the join key (sidecar only) |
+| member_scpot | per-member Φ aligned with member_ids (sidecar only) |
+
 ## 6. Episode model and catalog (`build_episode_catalog.py`)
 
 Hard gates, applied upstream of the model, never features: dir_x_bx = −1 (tailward), e_b_med < 600 eV, beta_med < 0.03, te_med < 500 eV.
@@ -160,4 +176,8 @@ Catalog cut: model fires at prob ≥ 0.82, prominence fires at prom_max ≥ 0.55
 
 `candidates/tail2015/analysis/beam_catalog_2015.csv` (the 2015 catalog): tier, episode_id, t_start_ut, duration_s, n_samples, prob, prom_max, e_b_med, te_med, ne_ni_med, beta_med, label. prob is the lobe-scoped episode model probability; the blind-validated operating point is 0.82.
 
-`candidates/tail<year>/analysis/beam_catalog_<year>.csv`: the same columns for every other season. `candidates/all/beam_catalog_all.csv` and `episodes_all.csv`: the per-season files concatenated with a leading `season` column. `candidates/all/coverage.csv`: season, probe, n_intervals, hours (scanned), n_processed, hours_processed, hours_angle (angle-resolved reduced-mode hours inside processed intervals, the denominator for cross-season rates), n_unknown (processed intervals whose CDF was not on disk when counted).
+`candidates/tail<year>/analysis/beam_catalog_<year>.csv`: the same columns for every other season. `candidates/all/beam_catalog_all.csv` and `episodes_all.csv`: the per-season files concatenated with a leading `season` column. The pooled files also carry the potential sidecar columns from section 5 for seasons that have one (2011 to 2016 so far), blank elsewhere.
+
+`candidates/all/eb_map_<seasons>_t<tier>.csv` (`plot_eb_maps.py` cache, one row per catalog episode): season, episode_id, probe, t_start_ut, n_samples, e_b (measured member median), e_b_corr (member median of E_b + qΦ), scpot / scpot_min / scpot_max, de, eb_over_de (both from measured member values), te, eb_over_te (member median of corrected E_b over Te), x_gsm, y_gsm, z_gsm, r_xy, bx_gsm (FGM median over the episode).
+
+`candidates/all/coverage.csv`: season, probe, n_intervals, hours (scanned), n_processed, hours_processed, hours_angle (angle-resolved reduced-mode hours inside processed intervals, the denominator for cross-season rates), n_unknown (processed intervals whose CDF was not on disk when counted).

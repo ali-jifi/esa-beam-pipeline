@@ -3,6 +3,7 @@
 # count, scanned hours overstate coverage where fast survey only covers part of an interval
 import csv
 import glob
+import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,9 @@ CAND = ROOT / "candidates"
 OUT = CAND / "all"
 FMT = "%Y-%m-%d/%H:%M"
 COV_COLS = ["probe", "trange_start", "trange_end", "hours", "processed", "hours_angle"]
+SCPOT_COLS = ["scpot_med", "scpot_min", "scpot_max", "scpot_frac", "e_b_corr_med", "e_b_corr_min",
+              "e_b_corr_max", "e_b_corr_err", "eb_floor_true", "eb_over_te_meas", "eb_over_te_corr",
+              "sheath_flag", "fit_ok", "r_yz", "eclipse_flag"]
 
 
 def read(path):
@@ -84,20 +88,46 @@ def season_coverage(season):
     return rows
 
 
+def scpot(ana):
+    # potential sidecar from add_episode_scpot, e_b_med stays the measured value
+    # keyed by (episode_id, rep_id) since two peaks in one spin can share an episode_id
+    p = ana / "episode_scpot.jsonl"
+    if not p.exists():
+        return {}
+    out = {}
+    for line in open(p):
+        r = json.loads(line)
+        r.pop("member_scpot")
+        out[(r.pop("episode_id"), r.pop("rep_id"))] = r
+    return out
+
+
+def by_id(sp):
+    # catalog has no rep_id, drop ambiguous ids rather than join the wrong row
+    ids = [k[0] for k in sp]
+    dup = {i for i in ids if ids.count(i) > 1}
+    if dup:
+        print(f"[warn] {len(dup)} shared episode_id, left blank in catalog join: {sorted(dup)}")
+    return {k[0]: v for k, v in sp.items() if k[0] not in dup}
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     cats, eps, cataloged = [], [], set()
     for ana in sorted(CAND.glob("tail*/analysis")):
         season = ana.parent.name
+        sp = scpot(ana)
+        blank = dict.fromkeys(SCPOT_COLS, "")
         cat = ana / f"beam_catalog_{season[4:]}.csv"
         if cat.exists():
             cataloged.add(season)
-            cats += [{"season": season, **r} for r in read(cat)]
+            spi = by_id(sp)
+            cats += [{"season": season, **r, **blank, **spi.get(r["episode_id"], {})} for r in read(cat)]
         else:
             print(f"[warn] {season}: no {cat.name}")
         ep = ana / "episodes.csv"
         if ep.exists():
-            eps += [{"season": season, **r} for r in read(ep)]
+            eps += [{"season": season, **r, **blank, **sp.get((r["episode_id"], r["rep_id"]), {})} for r in read(ep)]
     write(OUT / "beam_catalog_all.csv", cats)
     write(OUT / "episodes_all.csv", eps)
 
