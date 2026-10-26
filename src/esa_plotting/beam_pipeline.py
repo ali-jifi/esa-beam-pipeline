@@ -49,14 +49,14 @@ class ESDDistribution:
     onecount: np.ndarray       # (ntime, 32, 176) one-count eflux level per bin
 
 def load_esd_distribution(probe: str, trange: list[str], data_dir: str,
-                          datatype: str = "peif") -> ESDDistribution:
+                          datatype: str = "peif", no_update: bool = False) -> ESDDistribution:
     # reads cdf directly bc pyspedas doesnt expose angle/energy lookup tables
     # peir = reduced mode, spin cadence ~3.2 s vs peif ~100 s, same cdf layout
     import os
     os.environ["THM_DATA_DIR"] = data_dir
 
     themis.esd(probe=probe, trange=trange, datatype=datatype,
-               time_clip=True, downloadonly=True)
+               time_clip=True, downloadonly=True, no_update=no_update)
 
     pattern = str(
         Path(data_dir)
@@ -191,11 +191,12 @@ def load_esd_distribution(probe: str, trange: list[str], data_dir: str,
         en_ind=en_ind, an_ind=an_ind, onecount=onecount,
     )
 
-def load_bfield_dsl(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
+def load_bfield_dsl(probe: str, trange: list[str], data_dir: str,
+                    no_update: bool = False) -> tuple[np.ndarray, np.ndarray]:
     # returns (times, b_dsl) where b_dsl is (n,3)
     import os
     os.environ["THM_DATA_DIR"] = data_dir
-    themis.fgm(probe=probe, trange=trange, level="l2", time_clip=True)
+    themis.fgm(probe=probe, trange=trange, level="l2", time_clip=True, no_update=no_update)
     varname = f"th{probe}_fgs_dsl"
     d = get_data(varname)
     if d is None:
@@ -208,11 +209,14 @@ def load_bfield_dsl(probe: str, trange: list[str], data_dir: str) -> tuple[np.nd
         raise ValueError(f"No FGM DSL data found for probe {probe}")
     return d.times, d.y
 
-def load_bfield_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.ndarray, np.ndarray]:
+def load_bfield_gsm(probe: str, trange: list[str], data_dir: str,
+                    no_update: bool = False, reload: bool = True) -> tuple[np.ndarray, np.ndarray]:
     # returns (times, b_gsm) in nT, diagnose context only
-    import os
-    os.environ["THM_DATA_DIR"] = data_dir
-    themis.fgm(probe=probe, trange=trange, level="l2", time_clip=True)
+    # reload=False reuses the fgm vars a load_bfield_dsl call on the same trange already put in tplot
+    if reload:
+        import os
+        os.environ["THM_DATA_DIR"] = data_dir
+        themis.fgm(probe=probe, trange=trange, level="l2", time_clip=True, no_update=no_update)
     for cad in ("fgs", "fgl", "fgh"):
         d = get_data(f"th{probe}_{cad}_gsm")
         if d is not None:
@@ -230,10 +234,13 @@ def load_state_gsm(probe: str, trange: list[str], data_dir: str) -> tuple[np.nda
         raise ValueError(f"No state GSM position found for probe {probe}")
     return d.times, d.y / 6371.2
 
-def load_moments(probe: str, trange: list[str], data_dir: str) -> dict:
+def load_moments(probe: str, trange: list[str], data_dir: str,
+                 no_update: bool = False, varnames: list[str] | None = None) -> dict:
+    # varnames=None loads and time clips every esa l2 var, a short list skips the rest
     import os
     os.environ["THM_DATA_DIR"] = data_dir
-    themis.esa(probe=probe, trange=trange, level="l2", time_clip=True)
+    themis.esa(probe=probe, trange=trange, level="l2", time_clip=True, no_update=no_update,
+               varnames=varnames or [])
 
     prefix = f"th{probe}_peif"
     result = {}
@@ -282,43 +289,27 @@ class PitchAngleSpectra:
     para_floor: np.ndarray | None = None  # (ntime, nenergy)
     anti_floor: np.ndarray | None = None  # (ntime, nenergy)
 
-def _compute_pitch_angles(theta_inst: np.ndarray, phi_inst: np.ndarray,
-                          b_dsl: np.ndarray, phi_offset: float) -> np.ndarray:
-    # pa btwn particle vel and b
-    theta_rad = np.deg2rad(theta_inst)
-    # phi_offset corrects spin phase from inst frame to dsl
-    phi_rad = np.deg2rad(phi_inst + phi_offset)
-
-    # sphere to cartesian, theta is elevation so cos goes on x/y
-    # need vector form to dot with b-field below
-    # cdf theta/phi already give particle travel direction, verified against
-    # l2 velocity moments (2015-12-20 lobe, median 176 deg with a -look flip)
-    vx = np.cos(theta_rad) * np.cos(phi_rad)
-    vy = np.cos(theta_rad) * np.sin(phi_rad)
-    vz = np.sin(theta_rad)
-
-    b_mag = np.linalg.norm(b_dsl)
-    # skip when b is too small, pa is undefined
-    if b_mag < 0.1:
-        return np.full_like(theta_inst, np.nan)
-
-    bhat = b_dsl / b_mag
-    # cos(pa) = vhat . bhat, both are unit vectors
-    # dot product of unit vectors gives cos of angle between them
-    cos_pa = vx * bhat[0] + vy * bhat[1] + vz * bhat[2]
-    # clip floating point overshoot before arccos
-    cos_pa = np.clip(cos_pa, -1.0, 1.0)
-    return np.rad2deg(np.arccos(cos_pa))
-
-def _cone_sigma(f: np.ndarray, dw: np.ndarray, oc: np.ndarray, w_sum: float) -> float:
-    # poisson sigma of the solid-angle weighted cone avg
-    # counts = flux/onecount so var(flux) = onecount * flux per bin
-    # floor flux at one count so an empty-but-sampled bin still has sigma > 0
-    fin = np.isfinite(oc) & (oc > 0) & np.isfinite(f)
-    if not np.any(fin) or w_sum <= 0:
-        return np.nan
-    fv = np.maximum(f[fin], oc[fin])
-    return float(np.sqrt(np.sum(dw[fin] ** 2 * oc[fin] * fv)) / w_sum)
+def _masked_sums(mask: np.ndarray, *vals: np.ndarray) -> list[np.ndarray]:
+    # per-row sum of vals[r, mask[r]], bit identical to np.sum on the compressed row
+    # a zero-filled masked sum regroups numpys pairwise adds and shifts the last bit,
+    # so pack each rows picks into a contiguous prefix and reduce equal-count rows together
+    nrow, nbin = mask.shape
+    # int16 cumsum and flat indices, the int64 cumsum and 2d fancy indexing dominated runtime
+    cs = np.cumsum(mask, axis=1, dtype=np.int16)
+    n = cs[:, -1]
+    src = np.flatnonzero(mask)
+    dest = src - src % nbin + cs.ravel()[src] - 1
+    groups = [(k, np.flatnonzero(n == k)) for k in np.unique(n) if k > 0]
+    out = []
+    for v in vals:
+        packed = np.zeros(nrow * nbin, dtype=v.dtype)
+        packed[dest] = v.ravel()[src]
+        packed = packed.reshape(nrow, nbin)
+        s = np.zeros(nrow, dtype=v.dtype)
+        for k, rows in groups:
+            s[rows] = np.add.reduce(packed[rows, :k], axis=1)
+        out.append(s)
+    return out
 
 def compute_pa_spectra(
     dist: ESDDistribution,
@@ -327,13 +318,18 @@ def compute_pa_spectra(
     para_range: tuple[float, float] = (0.0, 30.0),
     anti_range: tuple[float, float] = (150.0, 180.0),
     perp_range: tuple[float, float] = (75.0, 105.0),
+    chunk: int = 512,
 ) -> PitchAngleSpectra:
     # reduces 3d dist to pa-gated energy spectra per timestep
+    # vectorized over (time, energy) rows in time chunks, each expression keeps the
+    # old per-bin loops operand dtypes and every sum goes through _masked_sums,
+    # so the output matches the loop bit for bit
     b_interp = interp1d(b_times, b_dsl, axis=0, kind="linear",
                         bounds_error=False, fill_value="extrapolate")
-    
+
     ntime = len(dist.times)
     nenergy = len(dist.energy)
+    nbin = dist.theta.shape[1]
     valid_energy_mask = dist.energy > 0
 
     omni = np.full((ntime, nenergy), np.nan)
@@ -350,92 +346,98 @@ def compute_pa_spectra(
     cov_anti = np.zeros(ntime)
     cov_perp = np.zeros(ntime)
 
-    for t in range(ntime):
-        b_vec = b_interp(dist.times[t])
-        phi_off = dist.phi_offset[t]
-        bins_valid = dist.bins_mask[t]
-        flux = dist.eflux[t]
+    # pa btwn particle vel and b, theta is elevation so cos goes on x/y
+    # cdf theta/phi already give particle travel direction, verified against
+    # l2 velocity moments (2015-12-20 lobe, median 176 deg with a -look flip)
+    theta_rad = np.deg2rad(dist.theta)
+    cos_th = np.cos(theta_rad)
+    vz = np.sin(theta_rad)
 
-        for e in range(nenergy):
-            if not valid_energy_mask[e]:
-                continue
+    for t0 in range(0, ntime, chunk):
+        sl = slice(t0, min(t0 + chunk, ntime))
+        nt = sl.stop - sl.start
+        nrow = nt * nenergy
 
-            valid = bins_valid[e].astype(bool)
-            if not np.any(valid):
-                continue
+        b_vec = b_interp(dist.times[sl])
+        # per-row norm on purpose, a vectorized norm can round the last bit differently
+        b_mag = np.array([np.linalg.norm(v) for v in b_vec])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            bhat = b_vec / b_mag[:, None]
+        # phi_offset corrects spin phase from inst frame to dsl
+        phi_rad = np.deg2rad(dist.phi[None] + dist.phi_offset[sl, None, None])
+        vx = cos_th * np.cos(phi_rad)
+        vy = cos_th * np.sin(phi_rad)
+        # cos(pa) = vhat . bhat, clip floating point overshoot before arccos
+        with np.errstate(invalid="ignore"):
+            cos_pa = (vx * bhat[:, 0, None, None] + vy * bhat[:, 1, None, None]
+                      + vz * bhat[:, 2, None, None])
+            pa = np.rad2deg(np.arccos(np.clip(cos_pa, -1.0, 1.0)))
+        # pa is undefined when b is too small
+        pa[b_mag < 0.1] = np.nan
+        pa = pa.reshape(nrow, nbin)
 
-            f = flux[e, valid]
-            dw = dist.domega[e, valid]
-            oc = dist.onecount[t, e, valid]
+        f = dist.eflux[sl].reshape(nrow, nbin)
+        oc = dist.onecount[sl].reshape(nrow, nbin)
+        dw = np.broadcast_to(dist.domega[None], (nt, nenergy, nbin)).reshape(nrow, nbin)
+        valid = (dist.bins_mask[sl].astype(bool)
+                 & valid_energy_mask[None, :, None]).reshape(nrow, nbin)
 
-            th_bins = dist.theta[e, valid]
-            ph_bins = dist.phi[e, valid]
+        with np.errstate(invalid="ignore"):
+            good = valid & ~np.isnan(pa) & np.isfinite(f) & (f > 0)
+        # rows with no lit bin are skipped whole, floors and coverage included
+        active = good.any(axis=1)
+        # cone membership from pointing alone, a sampled cone with zero
+        # counts is an empty measurement, its floor is the one-count level
+        sampled = valid & ~np.isnan(pa) & active[:, None]
 
-            pa = _compute_pitch_angles(th_bins, ph_bins, b_vec, phi_off)
+        fdw = f * dw
+        # solid-angle weighted avg, bigger bins count more
+        # equal-weight avg would bias toward small high-latitude bins
+        total_weight, s_omni = _masked_sums(good, dw, fdw)
+        # coverage denominator = all sampled solid angle, not just lit pixels
+        (w_sampled,) = _masked_sums(sampled, dw)
+        ocfin_all = np.isfinite(oc) & (oc > 0)
+        ocdw = oc * dw
+        # poisson sigma of the cone avg, counts = flux/onecount so var(flux) =
+        # onecount * flux per bin, flux floored at one count so empty-but-sampled bins keep sigma > 0
+        sig_term = dw ** 2 * oc * np.maximum(f, oc)
 
-            nan_mask = np.isnan(pa)
-            if np.all(nan_mask):
-                continue
-
-            good = ~nan_mask & np.isfinite(f) & (f > 0)
-            if not np.any(good):
-                continue
-
-            # solid-angle weighted avg, bigger bins count more
-            # equal-weight avg would bias toward small high-latitude bins
-            total_weight = dw[good].sum()
-            if total_weight > 0:
-                omni[t, e] = np.sum(f[good] * dw[good]) / total_weight
-
-            # cone membership from pointing alone, a sampled cone with zero
-            # counts is an empty measurement, its floor is the one-count level
-            sampled = ~nan_mask
-            # coverage denominator = all sampled solid angle, not just lit pixels
-            w_sampled = dw[sampled].sum()
-
-            def cone_floor(in_cone):
-                occ, dwc = oc[in_cone], dw[in_cone]
-                ocfin = np.isfinite(occ) & (occ > 0)
-                if np.any(ocfin):
-                    return np.sum(occ[ocfin] * dwc[ocfin]) / dwc[ocfin].sum()
-                return np.nan
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ok = total_weight > 0
+            omni[sl].reshape(nrow)[ok] = (s_omni[ok] / total_weight[ok])
 
             # gate by pa range then weighted avg over the cone only
             # isolates the directional pop we care about
-            cone_para = sampled & (pa >= para_range[0]) & (pa <= para_range[1])
-            in_para = cone_para & good
-            if np.any(cone_para):
-                para_floor[t, e] = cone_floor(cone_para)
+            for lo, hi, mean, sig, floor, cov in (
+                    (*para_range, para, para_sig, para_floor, cov_para),
+                    (*anti_range, anti, anti_sig, anti_floor, cov_anti),
+                    # perp cone is the clean background for R, beam depletes it not enhances
+                    (*perp_range, perp, perp_sig, perp_floor, cov_perp)):
+                cone = sampled & (pa >= lo) & (pa <= hi)
+                inc = cone & good
+                has_cone = cone.any(axis=1)
+                has_in = inc.any(axis=1)
+
+                # one-count floor through the same solid-angle weighting, only over
+                # bins with a finite one-count level so nan cant poison it
+                ocfin = cone & ocfin_all
+                s_ocdw, w_ocfin = _masked_sums(ocfin, ocdw, dw)
+                m = has_cone & ocfin.any(axis=1)
+                floor[sl].reshape(nrow)[m] = s_ocdw[m] / w_ocfin[m]
+
                 # coverage = frac of solid angle the cone sampled, empty counts
                 # low coverage means the avg is unreliable, drop it downstream
-                cov_para[t] = max(cov_para[t], dw[cone_para].sum() / w_sampled)
-            if np.any(in_para):
-                w_para = dw[in_para].sum()
-                para[t, e] = np.sum(f[in_para] * dw[in_para]) / w_para
-                para_sig[t, e] = _cone_sigma(f[in_para], dw[in_para], oc[in_para], w_para)
+                (w_cone,) = _masked_sums(cone, dw)
+                frac = np.where(has_cone, w_cone / w_sampled, 0)
+                frac = np.where(np.isnan(frac), 0, frac).reshape(nt, nenergy)
+                cov[sl] = np.maximum(cov[sl], frac.max(axis=1))
 
-            cone_anti = sampled & (pa >= anti_range[0]) & (pa <= anti_range[1])
-            in_anti = cone_anti & good
-            if np.any(cone_anti):
-                anti_floor[t, e] = cone_floor(cone_anti)
-                cov_anti[t] = max(cov_anti[t], dw[cone_anti].sum() / w_sampled)
-            if np.any(in_anti):
-                w_anti = dw[in_anti].sum()
-                anti[t, e] = np.sum(f[in_anti] * dw[in_anti]) / w_anti
-                anti_sig[t, e] = _cone_sigma(f[in_anti], dw[in_anti], oc[in_anti], w_anti)
-
-            # perp cone is the clean background for R, beam depletes it not enhances
-            cone_perp = sampled & (pa >= perp_range[0]) & (pa <= perp_range[1])
-            in_perp = cone_perp & good
-            if np.any(cone_perp):
-                # one-count noise floor through the same solid-angle weighting,
-                # only over bins with a finite one-count level so nan cant poison it
-                perp_floor[t, e] = cone_floor(cone_perp)
-                cov_perp[t] = max(cov_perp[t], dw[cone_perp].sum() / w_sampled)
-            if np.any(in_perp):
-                w_perp = dw[in_perp].sum()
-                perp[t, e] = np.sum(f[in_perp] * dw[in_perp]) / w_perp
-                perp_sig[t, e] = _cone_sigma(f[in_perp], dw[in_perp], oc[in_perp], w_perp)
+                w_in, s_in = _masked_sums(inc, dw, fdw)
+                mean[sl].reshape(nrow)[has_in] = s_in[has_in] / w_in[has_in]
+                fin = inc & ocfin_all
+                (s_sig,) = _masked_sums(fin, sig_term)
+                m = has_in & fin.any(axis=1) & (w_in > 0)
+                sig[sl].reshape(nrow)[m] = np.sqrt(s_sig[m]) / w_in[m]
 
     return PitchAngleSpectra(
         times=dist.times,

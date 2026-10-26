@@ -3,7 +3,11 @@
 import argparse
 import csv
 import json
+import os
 from dataclasses import replace
+
+# one blas thread per process, must be set before numpy loads, spawned workers inherit it
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -163,6 +167,11 @@ def beta_at(tc, moments, b_gsm):
 
 
 LOBE_BETA_MAX = 0.1
+
+# every esa l2 var run_interval reads, load_moments plus _load_ne_ni and _load_te,
+# anything not listed here comes back as None so add it before reading a new one
+ESA_VARS = ("peif_density", "peif_velocity_gsm", "peif_velocity_dsl", "peif_avgtemp",
+            "peif_vthermal", "peer_density", "peer_avgtemp")
 
 
 def build_records(probe, trange, tag, profile_name, spectra, features, cls,
@@ -364,7 +373,7 @@ def _load_te(probe):
 
 
 def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
-                 energy_cutoff=30.0, cutouts=True, datatype="peif"):
+                 energy_cutoff=30.0, cutouts=True, datatype="peif", no_update=False):
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{probe}_{_fstag(trange[0])}_{profile_name}"
     jsonl = out_dir / f"{stem}.jsonl"
@@ -374,9 +383,11 @@ def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
         return None
 
     params = make_profile(profile_name)
-    dist = load_esd_distribution(probe, trange, data_dir, datatype=datatype)
-    b_times, b_dsl = load_bfield_dsl(probe, trange, data_dir)
-    moments = load_moments(probe, trange, data_dir)
+    dist = load_esd_distribution(probe, trange, data_dir, datatype=datatype,
+                                 no_update=no_update)
+    b_times, b_dsl = load_bfield_dsl(probe, trange, data_dir, no_update=no_update)
+    moments = load_moments(probe, trange, data_dir, no_update=no_update,
+                           varnames=[f"th{probe}_{v}" for v in ESA_VARS])
     spectra = compute_pa_spectra(dist, b_times, b_dsl)
     b_mask = lobe_baseline_mask(spectra.times, moments, b_times, b_dsl)
     features = extract_features(spectra, moments,
@@ -395,7 +406,7 @@ def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
 
     b_gsm = None
     try:
-        b_gsm = load_bfield_gsm(probe, trange, data_dir)
+        b_gsm = load_bfield_gsm(probe, trange, data_dir, no_update=no_update, reload=False)
     except Exception as e:
         print(f"[warn] b_gsm unavailable: {e}")
     ne_ni = _load_ne_ni(probe, moments)
@@ -422,6 +433,63 @@ def run_interval(probe, trange, tag, profile_name, data_dir, out_dir,
     return records
 
 
+def prefetch(rows, data_dir, datatype):
+    # serial download-only pass, same three loads run_interval makes, once per probe-day span
+    from pyspedas.projects import themis
+    seen = set()
+    for row in rows:
+        key = (row["probe"], row["trange_start"][:10], row["trange_end"][:10])
+        if key in seen:
+            continue
+        seen.add(key)
+        trange = [row["trange_start"], row["trange_end"]]
+        themis.esd(probe=row["probe"], trange=trange, datatype=datatype, downloadonly=True)
+        themis.fgm(probe=row["probe"], trange=trange, level="l2", downloadonly=True)
+        themis.esa(probe=row["probe"], trange=trange, level="l2", downloadonly=True)
+    print(f"[prefetch] {len(seen)} probe-day spans checked")
+
+
+def _spacepy_rc_header():
+    # spacepy 0.7 drops the [spacepy] header when it adds defaults, then truncates and
+    # rewrites the rc on every import, so concurrent worker imports crash reading it
+    import spacepy
+    with open(spacepy.rcfile) as fh:
+        return spacepy.rcfile, any(ln.strip() == "[spacepy]" for ln in fh)
+
+
+def _pool_task(probe, trange, tag, profile_name, data_dir, out_dir, kw):
+    # top-level so spawn can pickle it, returns a count not the records
+    recs = run_interval(probe, trange, tag, profile_name, data_dir, out_dir, **kw)
+    return None if recs is None else len(recs)
+
+
+def _hours(row):
+    fmt = "%Y-%m-%d/%H:%M"
+    t0 = datetime.strptime(row["trange_start"], fmt)
+    return (datetime.strptime(row["trange_end"], fmt) - t0).total_seconds()
+
+
+def run_pool(rows, workers, profile_name, data_dir, out_dir, kw):
+    # separate processes bc pytplot keeps loaded vars in one global store per process
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    # longest first so a 13 h interval doesnt start last and hold up the tail
+    rows = sorted(rows, key=_hours, reverse=True)
+    fails = 0
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_pool_task, r["probe"], [r["trange_start"], r["trange_end"]],
+                          r["interval_tag"], profile_name, data_dir, out_dir, kw): r
+                for r in rows}
+        for f in as_completed(futs):
+            r = futs[f]
+            try:
+                f.result()
+            except Exception as e:
+                fails += 1
+                print(f"[fail] {r['probe']} {r['trange_start']}: {type(e).__name__}: {e}",
+                      flush=True)
+    return fails
+
+
 def main():
     p = argparse.ArgumentParser(description="labeled beam candidate generation")
     p.add_argument("--events", help="csv with probe,trange_start,trange_end,interval_tag")
@@ -435,7 +503,19 @@ def main():
     p.add_argument("--out", default=str(CANDIDATES))
     p.add_argument("--no-cutouts", action="store_true")
     p.add_argument("--datatype", default="peif", choices=["peif", "peir"])
+    p.add_argument("--prefetch", action="store_true",
+                   help="download the files for --events and exit, no compute")
+    p.add_argument("--no-update", action="store_true",
+                   help="read local files only, never contact the server")
+    p.add_argument("--workers", type=int, default=1,
+                   help="parallel interval processes for --events, needs --no-update")
     args = p.parse_args()
+    if args.workers > 1 and not args.no_update:
+        p.error("--workers > 1 needs --no-update, run --prefetch first")
+    if args.workers > 1:
+        rc, ok = _spacepy_rc_header()
+        if not ok:
+            p.error(f"add a [spacepy] line at the top of {rc}, workers race on it otherwise")
 
     data_dir = set_data_dir()
     out_dir = Path(args.out)
@@ -443,19 +523,28 @@ def main():
     if args.events:
         with open(args.events, newline="") as fh:
             rows = list(csv.DictReader(fh))
+        if args.prefetch:
+            prefetch(rows, data_dir, args.datatype)
+            return
         fails = 0
-        for row in rows:
-            trange = [row["trange_start"], row["trange_end"]]
-            try:
-                run_interval(row["probe"], trange, row["interval_tag"],
-                             args.profile, data_dir, out_dir,
-                             energy_cutoff=args.energy_cutoff,
-                             cutouts=not args.no_cutouts,
-                             datatype=args.datatype)
-            except Exception as e:
-                # one bad interval must not kill a multi-day batch
-                fails += 1
-                print(f"[fail] {row['probe']} {trange[0]}: {type(e).__name__}: {e}")
+        if args.workers > 1:
+            kw = dict(energy_cutoff=args.energy_cutoff, cutouts=not args.no_cutouts,
+                      datatype=args.datatype, no_update=args.no_update)
+            fails = run_pool(rows, args.workers, args.profile, data_dir, out_dir, kw)
+        else:
+            for row in rows:
+                trange = [row["trange_start"], row["trange_end"]]
+                try:
+                    run_interval(row["probe"], trange, row["interval_tag"],
+                                 args.profile, data_dir, out_dir,
+                                 energy_cutoff=args.energy_cutoff,
+                                 cutouts=not args.no_cutouts,
+                                 datatype=args.datatype,
+                                 no_update=args.no_update)
+                except Exception as e:
+                    # one bad interval must not kill a multi-day batch
+                    fails += 1
+                    print(f"[fail] {row['probe']} {trange[0]}: {type(e).__name__}: {e}")
         if fails:
             print(f"[warn] {fails}/{len(rows)} intervals failed")
     else:
@@ -464,7 +553,8 @@ def main():
                      data_dir, out_dir,
                      energy_cutoff=args.energy_cutoff,
                      cutouts=not args.no_cutouts,
-                     datatype=args.datatype)
+                     datatype=args.datatype,
+                     no_update=args.no_update)
 
 
 if __name__ == "__main__":
